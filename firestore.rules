@@ -1,0 +1,45 @@
+rules_version = '2';
+
+// ================================================================
+// PT DWIBINTANG GLOBAL — FIRESTORE SECURITY RULES
+// Single-user system with Email/Password Auth
+// ================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: hanya user yang sudah login yang bisa akses
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Semua collection hanya bisa diakses oleh user yang sudah login
+    match /coa/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /contacts/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /journals/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /invoices/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /bills/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /settings/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /counters/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}
