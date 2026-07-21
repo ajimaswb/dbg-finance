@@ -164,7 +164,7 @@ onAuthStateChanged(auth, async (user) => {
     await loadCOA();
     await loadContacts();
     initDateInputs();
-    await loadDashboard();
+    navigateTo('dashboard');
     await refreshBadges();
     showLoading(false);
     updateDateDisplay();
