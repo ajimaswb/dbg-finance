@@ -176,10 +176,12 @@ onAuthStateChanged(auth, async (user) => {
     getEl('app-container').classList.add('hidden');
     const btn = getEl('btn-login');
     if (btn) { btn.disabled = false; btn.textContent = 'Masuk'; }
-    const emailEl = getEl('login-email');
-    const passEl = getEl('login-password');
+    const emailEl = getEl('auth-email');
+    const passEl = getEl('auth-password');
     if (emailEl) emailEl.value = '';
     if (passEl) passEl.value = '';
+    const formEl = getEl('auth-form');
+    if (formEl) formEl.reset();
   }
 });
 
