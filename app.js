@@ -89,11 +89,13 @@ function getEl(id) { return document.getElementById(id); }
 function setText(id, text) { const el = getEl(id); if (el) el.textContent = text; }
 function setVal(id, val) { const el = getEl(id); if (el) el.value = val; }
 
-function confirmDialog(message) {
+function confirmDialog(message, okText = 'Hapus', okClass = 'btn-danger') {
   return new Promise(resolve => {
     const modal = getEl('confirm-modal');
     getEl('confirm-message').textContent = message;
     const btnOk = getEl('btn-confirm-ok');
+    btnOk.textContent = okText;
+    btnOk.className = `btn ${okClass}`;
     const btnCancel = getEl('btn-confirm-cancel');
     const btnX = getEl('btn-confirm-x');
     const cleanup = (result) => {
@@ -145,7 +147,7 @@ async function handleLogin(e) {
 }
 
 async function handleLogout() {
-  const ok = await confirmDialog('Yakin ingin keluar dari sistem?');
+  const ok = await confirmDialog('Yakin ingin keluar dari sistem?', 'Keluar', 'btn-primary');
   if (ok) { await signOut(auth); showToast('Berhasil keluar', 'info'); }
 }
 
