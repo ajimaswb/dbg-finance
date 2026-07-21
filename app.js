@@ -448,13 +448,13 @@ function renderCOA() {
       <td><span class="badge badge-info">${getAccountTypeLabel(a.type)}</span></td>
       <td><span class="badge ${a.normalBalance === 'debit' ? 'badge-info' : 'badge-muted'}">${a.normalBalance === 'debit' ? 'Debit' : 'Kredit'}</span></td>
       <td>${a.isActive !== false ? '<span class="badge badge-success">Aktif</span>' : '<span class="badge badge-muted">Nonaktif</span>'}</td>
-      <td><div class="actions-cell">${!a.isGroup ? `
+      <td><div class="actions-cell">
         <button class="btn-icon" onclick="openCOAModal('${a.id}')" title="Edit">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
         <button class="btn-icon danger" onclick="deleteCOA('${a.id}','${a.name.replace(/'/g,"\\'")}')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-        </button>` : ''}</div></td>
+        </button></div></td>
     </tr>`).join('');
 }
 
