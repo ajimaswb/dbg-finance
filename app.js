@@ -1676,7 +1676,7 @@ async function printInvoice(id) {
       </div>
     </div>
     
-    <div class="signature-section" style="margin-top: 20px;">
+    <div class="signature-section" style="margin-top: 80px;">
       <p>Pemalang, ${formattedDate}</p>
       <div class="meterai-box">METERAI TEMPEL</div>
       <p>Dina Sofiana</p>
