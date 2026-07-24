@@ -2654,7 +2654,7 @@ Object.assign(window, {
   openJournalModal, closeJournalModal, addJournalLine, removeJournalLine, updateJournalTotals,
   clrOpp, saveJournal, renderJournals, deleteJournal, viewJournalDetail, closeJournalDetailModal, exportJournals,
   openCashBankModal, closeCashBankModal, updateCBLabels, saveCashBank, renderCashBank, calcCBTotals,
-  openInvoiceModal, closeInvoiceModal, addInvoiceItem, removeInvoiceItem, calcInvoiceTotals, saveInvoice, renderAR, viewInvoiceDetail, deleteInvoice,
+  openInvoiceModal, closeInvoiceModal, addInvoiceItem, removeInvoiceItem, calcInvoiceTotals, saveInvoice, renderAR, viewInvoiceDetail, deleteInvoice, printInvoice,
   openBillModal, closeBillModal, addBillItem, removeBillItem, calcBillTotals, saveBill, renderAP, deleteBill,
   openPaymentModal, closePaymentModal, savePayment,
   renderTrialBalance, renderBalanceSheet, renderPL, renderCashFlow, renderLedger, loadLedgerAccountSelect, loadDailyCashReport, renderDailyCash, renderARAgingReport, exportReportCSV, printReport,
