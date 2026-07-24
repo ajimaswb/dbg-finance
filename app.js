@@ -1020,7 +1020,7 @@ async function saveCashBank(e) {
   e.preventDefault();
   const type = document.querySelector('input[name="cb-type"]:checked')?.value;
   const date = getEl('cb-date').value, cashCode = getEl('cb-cash-account').value, counterCode = getEl('cb-counter-account').value;
-  const amount = Number(getEl('cb-amount').value), desc = getEl('cb-desc').value.trim(), ref = getEl('cb-ref').value.trim();
+  const amount = Number(getEl('cb-amount').value), desc = getEl('cb-desc').value.trim().split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' '), ref = getEl('cb-ref').value.trim();
   if (!type || !date || !cashCode || !counterCode || !amount || !desc) { showToast('Semua field wajib diisi', 'error'); return; }
   
   const appliedTaxes = [];
@@ -2299,6 +2299,9 @@ async function renderDailyCash() {
         }
       });
     });
+    
+    // Sort transactions by COA code
+    txs.sort((a, b) => (a.accCode || '').localeCompare(b.accCode || ''));
     
     // --- Render Table 1 ---
     let t1HTML = `<tr><td colspan="2">Balance (Before)</td><td class="text-right" style="color:var(--success-light)">${formatRp(openBal)}</td><td class="text-right"></td></tr>`;
