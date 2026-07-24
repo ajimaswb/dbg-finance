@@ -962,7 +962,49 @@ function closeJournalDetailModal() { getEl('journal-detail-modal').close(); }
 async function deleteJournal(id, journalNo) {
   const ok = await confirmDialog(`Hapus jurnal ${journalNo}? Tindakan ini tidak dapat diurungkan.`);
   if (!ok) return;
-  try { await deleteDoc(doc(db, 'journals', id)); showToast('Jurnal dihapus'); renderJournals(); renderCashBank(); }
+  try {
+    const snap = await getDoc(doc(db, 'journals', id));
+    if (snap.exists()) {
+      const j = snap.data();
+      if (j.source === 'invoice' || j.source === 'bill') {
+        showToast('Jurnal ini terikat dengan tagihan. Harap hapus tagihan dari menu Piutang/Hutang.', 'error');
+        return;
+      }
+      if (j.source === 'invoice_payment') {
+        const invSnap = await getDocs(query(collection(db, 'invoices'), where('invoiceNo', '==', j.reference)));
+        if (!invSnap.empty) {
+          const invDoc = invSnap.docs[0];
+          const inv = invDoc.data();
+          const amt = j.totalDebit;
+          const newPaid = Math.max(0, (inv.paid || 0) - amt);
+          const newRemaining = inv.total - newPaid;
+          const newStatus = newRemaining <= 0.01 ? 'paid' : (newPaid > 0 ? 'partial' : 'unpaid');
+          const newPayments = [...(inv.payments || [])];
+          const idx = newPayments.findIndex(p => p.amount === amt && p.date === j.date);
+          if (idx !== -1) newPayments.splice(idx, 1);
+          await updateDoc(doc(db, 'invoices', invDoc.id), { paid: newPaid, remaining: newRemaining, status: newStatus, payments: newPayments });
+        }
+      } else if (j.source === 'bill_payment') {
+        const billSnap = await getDocs(query(collection(db, 'bills'), where('billNo', '==', j.reference)));
+        if (!billSnap.empty) {
+          const billDoc = billSnap.docs[0];
+          const bill = billDoc.data();
+          const amt = j.totalDebit;
+          const newPaid = Math.max(0, (bill.paid || 0) - amt);
+          const newRemaining = bill.total - newPaid;
+          const newStatus = newRemaining <= 0.01 ? 'paid' : (newPaid > 0 ? 'partial' : 'unpaid');
+          const newPayments = [...(bill.payments || [])];
+          const idx = newPayments.findIndex(p => p.amount === amt && p.date === j.date);
+          if (idx !== -1) newPayments.splice(idx, 1);
+          await updateDoc(doc(db, 'bills', billDoc.id), { paid: newPaid, remaining: newRemaining, status: newStatus, payments: newPayments });
+        }
+      }
+    }
+    await deleteDoc(doc(db, 'journals', id)); 
+    showToast('Jurnal dihapus'); renderJournals(); renderCashBank(); refreshBadges();
+    if (typeof renderAR === 'function') renderAR();
+    if (typeof renderAP === 'function') renderAP();
+  }
   catch (e) { showToast('Gagal: ' + e.message, 'error'); }
 }
 
@@ -2748,6 +2790,45 @@ async function exportJournals() {
 // ================================================================
 // GLOBAL EXPOSE — HTML onclick handlers
 // ================================================================
+window.fixInconsistentPayments = async () => {
+  try {
+    console.log("Starting AR/AP payment sync...");
+    const invSnap = await getDocs(collection(db, 'invoices'));
+    for (const docSnap of invSnap.docs) {
+      const inv = docSnap.data();
+      const jSnap = await getDocs(query(collection(db, 'journals'), where('source', '==', 'invoice_payment'), where('reference', '==', inv.invoiceNo)));
+      let totalPaid = 0;
+      jSnap.forEach(j => totalPaid += j.data().totalDebit);
+      
+      if (Math.abs((inv.paid || 0) - totalPaid) > 0.01) {
+        console.log(`Fixing Invoice ${inv.invoiceNo}: recorded ${inv.paid}, actual ${totalPaid}`);
+        const rem = inv.total - totalPaid;
+        const stat = rem <= 0.01 ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
+        await updateDoc(docSnap.ref, { paid: totalPaid, remaining: rem, status: stat });
+      }
+    }
+
+    const billSnap = await getDocs(collection(db, 'bills'));
+    for (const docSnap of billSnap.docs) {
+      const bill = docSnap.data();
+      const jSnap = await getDocs(query(collection(db, 'journals'), where('source', '==', 'bill_payment'), where('reference', '==', bill.billNo)));
+      let totalPaid = 0;
+      jSnap.forEach(j => totalPaid += j.data().totalDebit);
+      
+      if (Math.abs((bill.paid || 0) - totalPaid) > 0.01) {
+        console.log(`Fixing Bill ${bill.billNo}: recorded ${bill.paid}, actual ${totalPaid}`);
+        const rem = bill.total - totalPaid;
+        const stat = rem <= 0.01 ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
+        await updateDoc(docSnap.ref, { paid: totalPaid, remaining: rem, status: stat });
+      }
+    }
+    console.log("Sync complete!");
+    alert("Sinkronisasi selesai! Refresh halaman.");
+  } catch(e) {
+    console.error(e);
+  }
+};
+
 Object.assign(window, {
   handleLogin, handleLogout, navigateTo, toggleSidebar, toggleTheme,
   openCOAModal, closeCOAModal, saveCOA, deleteCOA, updateNormalBalance, exportCOA, renderCOA,
@@ -2760,7 +2841,8 @@ Object.assign(window, {
   openPaymentModal, closePaymentModal, savePayment,
   renderTrialBalance, renderBalanceSheet, renderPL, renderCashFlow, renderLedger, loadLedgerAccountSelect, loadDailyCashReport, renderDailyCash, renderARAgingReport, exportReportCSV, printReport,
   saveSettings, saveAccountMappings, loadSettingsPage,
-  openTaxModal, closeTaxModal, saveTax, deleteTax
+  openTaxModal, closeTaxModal, saveTax, deleteTax,
+  fixInconsistentPayments
 });
 
 console.log('🏭 PT Dwi Bintang Global — Sistem Keuangan v1.0 | Ready');
