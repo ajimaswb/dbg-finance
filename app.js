@@ -1676,13 +1676,11 @@ async function printInvoice(id) {
       </div>
     </div>
     
-    <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
-      <div class="signature-section" style="margin-top: 0; margin-right: 40px;">
-        <p>Pemalang, ${formattedDate}</p>
-        <div class="meterai-box">METERAI TEMPEL</div>
-        <p>Dina Sofiana</p>
-        <p>Wakil Direktur</p>
-      </div>
+    <div class="signature-section" style="margin-top: 20px;">
+      <p>Pemalang, ${formattedDate}</p>
+      <div class="meterai-box">METERAI TEMPEL</div>
+      <p>Dina Sofiana</p>
+      <p>Wakil Direktur</p>
     </div>
     
     <div class="footer-section">
