@@ -1609,11 +1609,11 @@ async function printInvoice(id) {
   </head>
   <body>
     <div class="watermark">
-      <img src="logo.jpg" alt="Logo DBG Watermark" onerror="this.style.display='none'">
+      <img src="${window.location.origin}/logo.jpg" alt="Logo DBG Watermark" onerror="this.style.display='none'">
     </div>
     
     <div class="header-container">
-      <img src="logo.jpg" class="logo-img" alt="Logo DBG" onerror="this.style.display='none'">
+      <img src="${window.location.origin}/logo.jpg" class="logo-img" alt="Logo DBG" onerror="this.style.display='none'">
       <div>
         <h1 class="company-name">PT. DWI BINTANG GLOBAL</h1>
         <h2 class="company-sub">GARMENT FACTORY - TRADING - EXPORT</h2>
@@ -1662,22 +1662,24 @@ async function printInvoice(id) {
     <div class="says-row">SAYS: # ${amountInWords} #</div>
     <div style="font-size: 10px; font-weight:bold; margin-top: 2px;">CATATAN</div>
     
-    <div class="notes-section">
-      <div>Please transfer to our accunt :</div>
-      <div class="bank-details">
-        <table style="width:auto; border:none; margin:0;">
-          <tr><td style="border:none; padding:1px; width:110px;">No. Rekening</td><td style="border:none; padding:1px;">: 2513444443</td></tr>
-          <tr><td style="border:none; padding:1px;">Bank</td><td style="border:none; padding:1px;">: BCA</td></tr>
-          <tr><td style="border:none; padding:1px;">Atas nama</td><td style="border:none; padding:1px;">: PT. Dwi Bintang Global</td></tr>
-        </table>
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 20px;">
+      <div class="notes-section" style="margin-top: 0;">
+        <div>Please transfer to our account :</div>
+        <div class="bank-details">
+          <table style="width:auto; border:none; margin:0;">
+            <tr><td style="border:none; padding:1px; width:110px;">No. Rekening</td><td style="border:none; padding:1px;">: 2513444443</td></tr>
+            <tr><td style="border:none; padding:1px;">Bank</td><td style="border:none; padding:1px;">: BCA</td></tr>
+            <tr><td style="border:none; padding:1px;">Atas nama</td><td style="border:none; padding:1px;">: PT. Dwi Bintang Global</td></tr>
+          </table>
+        </div>
       </div>
-    </div>
-    
-    <div class="signature-section">
-      <p>Pemalang, ${formattedDate}</p>
-      <div class="meterai-box">METERAI TEMPEL</div>
-      <p>Dina Sofiana</p>
-      <p>Wakil Direktur</p>
+      
+      <div class="signature-section" style="margin-top: 0;">
+        <p>Pemalang, ${formattedDate}</p>
+        <div class="meterai-box">METERAI TEMPEL</div>
+        <p>Dina Sofiana</p>
+        <p>Wakil Direktur</p>
+      </div>
     </div>
     
     <div class="footer-section">
