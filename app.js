@@ -46,7 +46,7 @@ let state = {
 function formatRp(amount) {
   if (amount === null || amount === undefined || isNaN(amount)) return 'Rp 0';
   const n = Number(amount);
-  return (n < 0 ? '−' : '') + 'Rp ' + Math.abs(n).toLocaleString('id-ID');
+  return (n < 0 ? '−' : '') + 'Rp ' + Math.round(Math.abs(n)).toLocaleString('id-ID');
 }
 
 function formatDate(dateStr) {
