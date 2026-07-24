@@ -868,7 +868,7 @@ function updateJournalTotals() {
 
 async function saveJournal() {
   const editId = getEl('journal-edit-id').value;
-  const date = getEl('journal-date').value, description = getEl('journal-desc').value.trim(), reference = getEl('journal-ref').value.trim();
+  const date = getEl('journal-date').value, description = getEl('journal-desc').value.trim().split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' '), reference = getEl('journal-ref').value.trim();
   if (!date || !description) { showToast('Tanggal & keterangan wajib diisi', 'error'); return; }
   const rows = document.querySelectorAll('.journal-line-row');
   const entries = [];
@@ -876,7 +876,9 @@ async function saveJournal() {
     const code = r.querySelector('.ln-acc')?.value, d = Number(r.querySelector('.ln-d')?.value || 0), c = Number(r.querySelector('.ln-c')?.value || 0);
     if (!code) return;
     const acct = state.coa.find(a => a.code === code);
-    entries.push({ accountCode: code, accountName: acct?.name || code, description: r.querySelector('.ln-desc')?.value || '', debit: d, credit: c });
+    let lnDesc = (r.querySelector('.ln-desc')?.value || '').trim();
+    if (lnDesc) lnDesc = lnDesc.split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' ');
+    entries.push({ accountCode: code, accountName: acct?.name || code, description: lnDesc, debit: d, credit: c });
   });
   if (entries.filter(e => e.accountCode).length < 2) { showToast('Minimal 2 baris entri', 'error'); return; }
   const td = entries.reduce((s, e) => s + e.debit, 0), tc = entries.reduce((s, e) => s + e.credit, 0);
