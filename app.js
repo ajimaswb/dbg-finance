@@ -409,7 +409,7 @@ function renderDynamicTaxes(containerId, changeHandlerStr) {
     return `<div class="inv-total-row" style="margin-top: 4px;">
       <label style="cursor:${isAutoLocked ? 'not-allowed' : 'pointer'}; display:flex; align-items:center; gap:8px; color: var(--text-primary);">
         <input type="checkbox" class="dynamic-tax-checkbox" data-tax-id="${t.id}" data-tax-rate="${t.rate}" data-tax-type="${t.type}" data-tax-account="${t.accountId}" ${isAutoLocked ? 'checked disabled' : ''} onchange="${changeHandlerStr}">
-        ${t.name} (${t.rate}%)
+        ${t.name}
       </label>
       <span class="dynamic-tax-amount" data-tax-id="${t.id}" style="${t.type === 'deduction' ? 'color: var(--danger)' : ''}">Rp 0</span>
     </div>`;
