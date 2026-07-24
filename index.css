@@ -843,4 +843,6 @@ form:not(.modal-body form) { padding: 24px; }
     body { background: white; color: black; }
     .page { display: block !important; }
     section.page:not(.active) { display: none !important; }
+    .print-block-row { display: block !important; }
+    .print-block-row > div { margin-bottom: 24px !important; width: 100% !important; display: block !important; page-break-inside: avoid; }
 }
