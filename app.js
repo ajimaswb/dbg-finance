@@ -1189,6 +1189,28 @@ async function openInvoiceModal(editId = null) {
     setVal('inv-discount-amount', '');
     renderDynamicTaxes('inv-dynamic-taxes', 'calcInvoiceTotals()');
     addInvoiceItem();
+  } else {
+    try {
+      const snap = await getDoc(doc(db, 'invoices', editId));
+      if (snap.exists()) {
+        const inv = snap.data();
+        setVal('invoice-no', inv.invoiceNo); setVal('inv-date', inv.date); setVal('inv-due-date', inv.dueDate);
+        setVal('inv-customer', inv.customerId); setVal('inv-order-ref', inv.orderRef || '');
+        setVal('inv-notes', inv.notes || ''); setVal('inv-tax-ref', inv.taxRef || '');
+        setVal('inv-discount-amount', inv.discountAmount || '');
+        renderDynamicTaxes('inv-dynamic-taxes', 'calcInvoiceTotals()');
+        setTimeout(() => {
+          if (inv.appliedTaxes) {
+            inv.appliedTaxes.forEach(t => {
+              const cb = document.querySelector(`#inv-dynamic-taxes .dynamic-tax-checkbox[data-tax-id="${t.id}"]`);
+              if (cb) cb.checked = true;
+            });
+          }
+          inv.items.forEach(it => addInvoiceItem(it));
+          calcInvoiceTotals();
+        }, 100);
+      }
+    } catch(e) { showToast('Gagal memuat invoice', 'error'); }
   }
   calcInvoiceTotals();
   getEl('invoice-modal').showModal();
@@ -1196,7 +1218,7 @@ async function openInvoiceModal(editId = null) {
 
 function closeInvoiceModal() { getEl('invoice-modal').close(); }
 
-function addInvoiceItem() {
+function addInvoiceItem(data = null) {
   const id = ++_invItemCount;
   const row = document.createElement('div');
   row.className = 'inv-item-row invoice-item'; row.id = `inv-it-${id}`;
@@ -1210,6 +1232,12 @@ function addInvoiceItem() {
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>`;
   getEl('invoice-items-body').appendChild(row);
+  if (data) {
+    row.querySelector('.item-desc').value = data.description || '';
+    row.querySelector('.item-qty').value = data.quantity || 1;
+    row.querySelector('.item-unit').value = data.unit || 'pcs';
+    row.querySelector('.item-price').value = data.unitPrice || 0;
+  }
   calcInvoiceTotals();
 }
 
@@ -1289,7 +1317,10 @@ async function saveInvoice() {
   
   try {
     let invoiceNo = getEl('invoice-no').value.trim();
-    if (!invoiceNo || invoiceNo === 'Auto-generate') invoiceNo = await getNextNumber('invoice');
+    const editId = getEl('invoice-edit-id').value;
+    if (!invoiceNo || invoiceNo === 'Auto-generate') {
+      invoiceNo = editId ? invoiceNo : await getNextNumber('invoice');
+    }
     const arAcct = state.coa.find(a => a.code === arAccount) || { code: arAccount, name: 'Piutang Usaha' };
     const revAcct = state.coa.find(a => a.code === state.settings.revenueAccount) || { code: '4101', name: 'Pendapatan Jasa CMT' };
     const discountAcct = state.coa.find(a => a.code === '4105') || { code: '4105', name: 'Potongan Pendapatan' };
@@ -1318,12 +1349,36 @@ async function saveInvoice() {
       totalDebit += discountAmount;
     }
     
-    const jNo = await getNextNumber('journal');
-    const bookType = getTaxBookType(appliedTaxes);
+    let bookType = getTaxBookType(appliedTaxes);
     
-    const jRef = await addDoc(collection(db, 'journals'), { journalNo: jNo, date, description: `Invoice ${invoiceNo} - ${customer?.name}`, reference: invoiceNo, entries, totalDebit, totalCredit, source: 'invoice', bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-    await addDoc(collection(db, 'invoices'), { invoiceNo, date, dueDate, customerId, customerName: customer?.name || '', orderRef, taxRef, items, subtotal, appliedTaxes, discountAmount, total, paid: 0, remaining: total, status: 'unpaid', payments: [], journalId: jRef.id, notes, bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-    showToast(`Invoice ${invoiceNo} dibuat & jurnal diposting!`); closeInvoiceModal(); renderAR(); refreshBadges();
+    if (editId) {
+      const snap = await getDoc(doc(db, 'invoices', editId));
+      if (!snap.exists()) { showToast('Invoice tidak ditemukan', 'error'); return; }
+      const oldInv = snap.data();
+      const paid = oldInv.paid || 0;
+      if (total < paid) {
+        showToast(`Total baru (${formatRp(total)}) lebih kecil dari yang sudah dibayar (${formatRp(paid)})`, 'error');
+        return;
+      }
+      const remaining = total - paid;
+      const status = remaining <= 0.01 ? 'paid' : (paid > 0 ? 'partial' : 'unpaid');
+      const updatedAt = new Date().toISOString();
+      await updateDoc(doc(db, 'invoices', editId), { invoiceNo, date, dueDate, customerId, customerName: customer?.name || '', orderRef, taxRef, items, subtotal, appliedTaxes, discountAmount, total, remaining, status, notes, bookType, updatedAt });
+      if (oldInv.journalId) {
+        const jSnap = await getDoc(doc(db, 'journals', oldInv.journalId));
+        if (jSnap.exists()) {
+          const oldJ = jSnap.data();
+          await updateDoc(doc(db, 'journals', oldInv.journalId), { date, description: `Invoice ${invoiceNo} - ${customer?.name}`, reference: invoiceNo, entries, totalDebit, totalCredit, bookType, updatedAt });
+        }
+      }
+      showToast(`Invoice ${invoiceNo} diperbarui!`);
+    } else {
+      const jNo = await getNextNumber('journal');
+      const jRef = await addDoc(collection(db, 'journals'), { journalNo: jNo, date, description: `Invoice ${invoiceNo} - ${customer?.name}`, reference: invoiceNo, entries, totalDebit, totalCredit, source: 'invoice', bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      await addDoc(collection(db, 'invoices'), { invoiceNo, date, dueDate, customerId, customerName: customer?.name || '', orderRef, taxRef, items, subtotal, appliedTaxes, discountAmount, total, paid: 0, remaining: total, status: 'unpaid', payments: [], journalId: jRef.id, notes, bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      showToast(`Invoice ${invoiceNo} dibuat & jurnal diposting!`);
+    }
+    closeInvoiceModal(); renderAR(); refreshBadges();
   } catch (e) { showToast('Gagal: ' + e.message, 'error'); }
 }
 
@@ -1361,6 +1416,9 @@ async function renderAR() {
           <button class="btn-icon" onclick="viewInvoiceDetail('${inv.id}')" title="Detail">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
+          ${inv.remaining > 0 ? `<button class="btn-icon" onclick="openInvoiceModal('${inv.id}')" title="Edit">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+          </button>` : ''}
           <button class="btn-icon danger" onclick="deleteInvoice('${inv.id}','${inv.invoiceNo}')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
           </button>
@@ -1409,7 +1467,15 @@ async function viewInvoiceDetail(id) {
 async function deleteInvoice(id, invoiceNo) {
   const ok = await confirmDialog(`Hapus invoice ${invoiceNo}?`);
   if (!ok) return;
-  try { await deleteDoc(doc(db, 'invoices', id)); showToast('Invoice dihapus'); renderAR(); refreshBadges(); }
+  try { 
+    const snap = await getDoc(doc(db, 'invoices', id));
+    if (snap.exists()) {
+      const inv = snap.data();
+      if (inv.journalId) await deleteDoc(doc(db, 'journals', inv.journalId));
+    }
+    await deleteDoc(doc(db, 'invoices', id)); 
+    showToast('Invoice dihapus'); renderAR(); refreshBadges(); 
+  }
   catch (e) { showToast('Gagal: ' + e.message, 'error'); }
 }
 
@@ -1745,6 +1811,28 @@ async function openBillModal(editId = null) {
     setVal('bill-ref', ''); setVal('bill-tax-ref', ''); setVal('bill-notes', '');
     renderDynamicTaxes('bill-dynamic-taxes', 'calcBillTotals()');
     addBillItem();
+  } else {
+    try {
+      getEl('bill-modal-title').textContent = 'Edit Tagihan Hutang';
+      const snap = await getDoc(doc(db, 'bills', editId));
+      if (snap.exists()) {
+        const b = snap.data();
+        setVal('bill-no', b.billNo); setVal('bill-date', b.date); setVal('bill-due-date', b.dueDate);
+        setVal('bill-supplier', b.supplierId); setVal('bill-ref', b.billRef || '');
+        setVal('bill-notes', b.notes || ''); setVal('bill-tax-ref', b.taxRef || '');
+        renderDynamicTaxes('bill-dynamic-taxes', 'calcBillTotals()');
+        setTimeout(() => {
+          if (b.appliedTaxes) {
+            b.appliedTaxes.forEach(t => {
+              const cb = document.querySelector(`#bill-dynamic-taxes .dynamic-tax-checkbox[data-tax-id="${t.id}"]`);
+              if (cb) cb.checked = true;
+            });
+          }
+          b.items.forEach(it => addBillItem(it));
+          calcBillTotals();
+        }, 100);
+      }
+    } catch(e) { showToast('Gagal memuat bill', 'error'); }
   }
   calcBillTotals();
   getEl('bill-modal').showModal();
@@ -1752,7 +1840,7 @@ async function openBillModal(editId = null) {
 
 function closeBillModal() { getEl('bill-modal').close(); }
 
-function addBillItem() {
+function addBillItem(data = null) {
   const id = ++_billItemCount;
   const row = document.createElement('div');
   row.className = 'inv-item-row bill-item'; row.id = `bill-it-${id}`;
@@ -1768,6 +1856,12 @@ function addBillItem() {
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>`;
   getEl('bill-items-body').appendChild(row);
+  if (data) {
+    row.querySelector('.item-desc').value = data.description || '';
+    row.querySelector('.item-exp-acc').value = data.expenseAccount || '';
+    row.querySelector('.item-qty').value = data.qty || 1;
+    row.querySelector('.item-price').value = data.price || 0;
+  }
   calcBillTotals();
 }
 
@@ -1844,7 +1938,11 @@ async function saveBill() {
   
   const grandTotal = subtotal + dynamicTaxTotal;
   try {
-    const billNo = await getNextNumber('bill');
+    let billNo = getEl('bill-no').value.trim();
+    const editId = getEl('bill-edit-id').value;
+    if (!billNo || billNo === 'Auto-generate') {
+      billNo = editId ? billNo : await getNextNumber('bill');
+    }
     const apAcct = state.coa.find(a => a.code === apAccount) || { code: apAccount, name: 'Hutang Usaha' };
     const entries = [
       ...items.map(it => ({ accountCode: it.expenseAccount, accountName: it.expenseAccountName, description: it.description, debit: it.amount, credit: 0 }))
@@ -1870,11 +1968,36 @@ async function saveBill() {
     
     entries.push({ accountCode: apAccount, accountName: apAcct.name, description: `Tagihan ${billNo} - ${supplier?.name}`, debit: 0, credit: grandTotal });
     
-    const jNo = await getNextNumber('journal');
-    const bookType = getTaxBookType(appliedTaxes);
-    const jRef = await addDoc(collection(db, 'journals'), { journalNo: jNo, date, description: `Tagihan ${billNo} - ${supplier?.name}`, reference: billNo, entries, totalDebit, totalCredit, source: 'bill', bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-    await addDoc(collection(db, 'bills'), { billNo, date, dueDate, supplierId, supplierName: supplier?.name || '', billRef, taxRef: billTaxRef, items, subtotal, appliedTaxes, total: grandTotal, paid: 0, remaining: grandTotal, status: 'unpaid', payments: [], journalId: jRef.id, notes, bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-    showToast(`Tagihan ${billNo} dibuat & jurnal diposting!`); closeBillModal(); renderAP(); refreshBadges();
+    let bookType = getTaxBookType(appliedTaxes);
+    
+    if (editId) {
+      const snap = await getDoc(doc(db, 'bills', editId));
+      if (!snap.exists()) { showToast('Tagihan tidak ditemukan', 'error'); return; }
+      const oldBill = snap.data();
+      const paid = oldBill.paid || 0;
+      if (grandTotal < paid) {
+        showToast(`Total baru (${formatRp(grandTotal)}) lebih kecil dari yang sudah dibayar (${formatRp(paid)})`, 'error');
+        return;
+      }
+      const remaining = grandTotal - paid;
+      const status = remaining <= 0.01 ? 'paid' : (paid > 0 ? 'partial' : 'unpaid');
+      const updatedAt = new Date().toISOString();
+      await updateDoc(doc(db, 'bills', editId), { billNo, date, dueDate, supplierId, supplierName: supplier?.name || '', billRef, taxRef: billTaxRef, items, subtotal, appliedTaxes, total: grandTotal, remaining, status, notes, bookType, updatedAt });
+      if (oldBill.journalId) {
+        const jSnap = await getDoc(doc(db, 'journals', oldBill.journalId));
+        if (jSnap.exists()) {
+          const oldJ = jSnap.data();
+          await updateDoc(doc(db, 'journals', oldBill.journalId), { date, description: `Tagihan ${billNo} - ${supplier?.name}`, reference: billNo, entries, totalDebit, totalCredit, bookType, updatedAt });
+        }
+      }
+      showToast(`Tagihan ${billNo} diperbarui!`);
+    } else {
+      const jNo = await getNextNumber('journal');
+      const jRef = await addDoc(collection(db, 'journals'), { journalNo: jNo, date, description: `Tagihan ${billNo} - ${supplier?.name}`, reference: billNo, entries, totalDebit, totalCredit, source: 'bill', bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      await addDoc(collection(db, 'bills'), { billNo, date, dueDate, supplierId, supplierName: supplier?.name || '', billRef, taxRef: billTaxRef, items, subtotal, appliedTaxes, total: grandTotal, paid: 0, remaining: grandTotal, status: 'unpaid', payments: [], journalId: jRef.id, notes, bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      showToast(`Tagihan ${billNo} dibuat & jurnal diposting!`);
+    }
+    closeBillModal(); renderAP(); refreshBadges();
   } catch (e) { showToast('Gagal: ' + e.message, 'error'); }
 }
 
@@ -1909,6 +2032,9 @@ async function renderAP() {
           ${b.remaining > 0 ? `<button class="btn-icon" onclick="openPaymentModal('${b.id}','bill')" style="color:var(--success)" title="Bayar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
           </button>` : ''}
+          ${b.remaining > 0 ? `<button class="btn-icon" onclick="openBillModal('${b.id}')" title="Edit">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+          </button>` : ''}
           <button class="btn-icon danger" onclick="deleteBill('${b.id}','${b.billNo}')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
           </button>
@@ -1921,7 +2047,15 @@ async function renderAP() {
 async function deleteBill(id, billNo) {
   const ok = await confirmDialog(`Hapus tagihan ${billNo}?`);
   if (!ok) return;
-  try { await deleteDoc(doc(db, 'bills', id)); showToast('Tagihan dihapus'); renderAP(); refreshBadges(); }
+  try { 
+    const snap = await getDoc(doc(db, 'bills', id));
+    if (snap.exists()) {
+      const b = snap.data();
+      if (b.journalId) await deleteDoc(doc(db, 'journals', b.journalId));
+    }
+    await deleteDoc(doc(db, 'bills', id)); 
+    showToast('Tagihan dihapus'); renderAP(); refreshBadges(); 
+  }
   catch (e) { showToast('Gagal: ' + e.message, 'error'); }
 }
 
