@@ -885,8 +885,17 @@ async function saveJournal() {
   if (Math.abs(td - tc) > 0.01) { showToast('Total Debit ≠ Total Kredit!', 'error'); return; }
   try {
     const journalNo = editId ? getEl('journal-no').value : await getNextNumber('journal');
-    const bookType = getTaxBookType();
-    const data = { journalNo, date, description, reference, entries, totalDebit: td, totalCredit: tc, bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    let bookType = getTaxBookType();
+    let createdAt = new Date().toISOString();
+    if (editId) {
+      const snap = await getDoc(doc(db, 'journals', editId));
+      if (snap.exists()) {
+        const j = snap.data();
+        bookType = j.bookType || bookType;
+        createdAt = j.createdAt || createdAt;
+      }
+    }
+    const data = { journalNo, date, description, reference, entries, totalDebit: td, totalCredit: tc, bookType, createdAt, updatedAt: new Date().toISOString() };
     if (editId) { await updateDoc(doc(db, 'journals', editId), data); showToast('Jurnal diperbarui!'); }
     else { await addDoc(collection(db, 'journals'), data); showToast('Jurnal disimpan!'); }
     closeJournalModal(); renderJournals(); renderCashBank(); refreshBadges();
