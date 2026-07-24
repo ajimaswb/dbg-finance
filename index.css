@@ -4,6 +4,7 @@
 
 /* VARIABLES */
 :root {
+    color-scheme: dark;
     --bg-primary: #070c18;
     --bg-secondary: #0d1528;
     --bg-card: rgba(13, 21, 40, 0.85);
@@ -43,6 +44,7 @@
 
 /* LIGHT THEME VARIABLES */
 :root.light-theme {
+    color-scheme: light;
     --bg-primary: #f8fafc;
     --bg-secondary: #ffffff;
     --bg-card: rgba(255, 255, 255, 0.85);
