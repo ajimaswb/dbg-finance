@@ -1576,10 +1576,7 @@ async function printInvoice(id) {
       }
       
       .footer-section {
-        position: absolute;
-        bottom: 30px;
-        left: 40px;
-        right: 40px;
+        margin-top: 40px;
         text-align: center;
         border-top: 2px solid #0056b3;
         padding-top: 10px;
