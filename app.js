@@ -1498,51 +1498,9 @@ async function printInvoice(id) {
         align-items: center;
         margin-bottom: 20px;
       }
-      .logo-placeholder {
-        width: 70px;
-        height: 50px;
-        border: 2px solid #0056b3;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #0056b3;
-        font-weight: bold;
-        font-size: 16px;
-        font-style: italic;
+      .logo-img {
+        width: 140px;
         margin-right: 15px;
-        position: relative;
-        background: transparent;
-      }
-      .logo-placeholder::after {
-        content: '★';
-        position: absolute;
-        right: -8px;
-        top: 8px;
-        font-size: 24px;
-        color: #0056b3;
-        -webkit-text-stroke: 1px white;
-      }
-      .logo-placeholder::before {
-         content: '';
-         position: absolute;
-         width: 140%;
-         height: 100%;
-         top: 0;
-         left: -20%;
-      }
-      
-      .logo-outer {
-         position: relative;
-         margin-right: 15px;
-      }
-      .logo-star {
-         position: absolute;
-         right: -15px;
-         top: 10px;
-         color: #0056b3;
-         font-size: 30px;
-         z-index: 10;
       }
       
       .company-name {
@@ -1634,31 +1592,13 @@ async function printInvoice(id) {
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        width: 400px;
-        height: 250px;
-        border: 12px solid rgba(0, 86, 179, 0.05);
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: rgba(0, 86, 179, 0.05);
-        font-weight: bold;
-        font-size: 120px;
-        font-style: italic;
+        width: 500px;
+        opacity: 0.05;
         z-index: -1;
       }
-      .watermark-star {
-        position: absolute;
-        right: -80px;
-        top: 20px;
-        font-size: 200px;
-        color: rgba(0, 86, 179, 0.05);
-      }
-      .watermark-text {
-        position: absolute;
-        bottom: 30px;
-        font-size: 28px;
-        white-space: nowrap;
+      .watermark img {
+        width: 100%;
+        height: auto;
       }
       
       @media print {
@@ -1669,16 +1609,11 @@ async function printInvoice(id) {
   </head>
   <body>
     <div class="watermark">
-      dbg
-      <div class="watermark-star">★</div>
-      <div class="watermark-text">PT. DWI BINTANG GLOBAL</div>
+      <img src="logo.jpg" alt="Logo DBG Watermark" onerror="this.style.display='none'">
     </div>
     
     <div class="header-container">
-      <div class="logo-outer">
-         <div class="logo-placeholder">dbg</div>
-         <div class="logo-star">★</div>
-      </div>
+      <img src="logo.jpg" class="logo-img" alt="Logo DBG" onerror="this.style.display='none'">
       <div>
         <h1 class="company-name">PT. DWI BINTANG GLOBAL</h1>
         <h2 class="company-sub">GARMENT FACTORY - TRADING - EXPORT</h2>
