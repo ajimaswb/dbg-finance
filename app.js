@@ -407,7 +407,7 @@ function renderDynamicTaxes(containerId, changeHandlerStr) {
   container.innerHTML = taxes.map(t => {
     const isAutoLocked = (state.accessLevel === 'tax' && t.isMandatory);
     return `<div class="inv-total-row" style="margin-top: 4px;">
-      <label style="cursor:${isAutoLocked ? 'not-allowed' : 'pointer'}; display:flex; align-items:center; gap:8px;">
+      <label style="cursor:${isAutoLocked ? 'not-allowed' : 'pointer'}; display:flex; align-items:center; gap:8px; color: var(--text-primary);">
         <input type="checkbox" class="dynamic-tax-checkbox" data-tax-id="${t.id}" data-tax-rate="${t.rate}" data-tax-type="${t.type}" data-tax-account="${t.accountId}" ${isAutoLocked ? 'checked disabled' : ''} onchange="${changeHandlerStr}">
         ${t.name} (${t.rate}%)
       </label>
