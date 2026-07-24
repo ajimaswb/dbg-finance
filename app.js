@@ -602,7 +602,7 @@ function renderCOA() {
   tbody.innerHTML = accounts.map(a => `
     <tr class="${a.isGroup ? 'coa-row-group' : 'coa-row-detail'}">
       <td><strong style="color:var(--accent-light)">${a.code}</strong></td>
-      <td style="${a.isGroup ? 'font-weight:700;color:var(--text-primary)' : (a.level >= 3 ? 'padding-left:28px' : '')}">${a.name}</td>
+      <td style="${a.isGroup ? 'font-weight:700;color:var(--text-primary)' : 'padding-left:28px'}">${a.name}</td>
       <td><span class="badge badge-info">${getAccountTypeLabel(a.type)}</span></td>
       <td><span class="badge ${a.normalBalance === 'debit' ? 'badge-info' : 'badge-muted'}">${a.normalBalance === 'debit' ? 'Debit' : 'Kredit'}</span></td>
       <td>${a.isActive !== false ? '<span class="badge badge-success">Aktif</span>' : '<span class="badge badge-muted">Nonaktif</span>'}</td>
@@ -641,9 +641,18 @@ async function saveCOA(e) {
   const type = getEl('coa-type').value, normalBalance = getEl('coa-normal-balance').value;
   const description = getEl('coa-description').value.trim();
   const isGroup = getEl('coa-is-group')?.checked || false;
+  
+  let formattedName = name;
+  if (isGroup) {
+    formattedName = name.toUpperCase();
+  } else {
+    formattedName = name.toLowerCase().replace(/(^\w|\s\w)/g, m => m.toUpperCase());
+  }
+  let level = isGroup ? (code.endsWith('000') ? 1 : 2) : 3;
+
   const existing = state.coa.find(a => a.code === code && a.id !== editId);
   if (existing) { showToast(`Kode ${code} sudah ada: "${existing.name}"`, 'error'); return; }
-  const data = { code, name, type, normalBalance, description, isGroup, isActive: true };
+  const data = { code, name: formattedName, type, normalBalance, description, isGroup, isActive: true, level };
   try {
     if (editId) {
       await updateDoc(doc(db, 'coa', editId), data);
