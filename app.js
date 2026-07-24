@@ -1483,12 +1483,13 @@ async function printInvoice(id) {
     <title>Print Invoice ${inv.invoiceNo}</title>
     <style>
       body {
-        font-family: 'Arial', sans-serif;
-        color: #000;
-        margin: 0;
-        padding: 40px;
+        font-family: sans-serif;
+        font-size: 12px;
         position: relative;
-        font-size: 13px;
+        min-height: 100vh;
+        padding: 40px;
+        padding-bottom: 120px;
+        box-sizing: border-box;
       }
       .blue-text {
         color: #0056b3;
@@ -1516,8 +1517,10 @@ async function printInvoice(id) {
         margin: 0;
       }
       .info-section {
-        margin-bottom: 20px;
+        display: flex;
+        flex-direction: column;
         font-weight: bold;
+        margin-bottom: 20px;
       }
       .info-section div { margin-bottom: 4px; }
       .title-section {
@@ -1576,7 +1579,10 @@ async function printInvoice(id) {
       }
       
       .footer-section {
-        margin-top: 40px;
+        position: absolute;
+        bottom: 30px;
+        left: 40px;
+        right: 40px;
         text-align: center;
         border-top: 2px solid #0056b3;
         padding-top: 10px;
@@ -1600,7 +1606,7 @@ async function printInvoice(id) {
       
       @media print {
         @page { margin: 0; }
-        body { padding: 40px; }
+        body { padding: 40px; padding-bottom: 120px; }
       }
     </style>
   </head>
@@ -1684,7 +1690,7 @@ async function printInvoice(id) {
       email : ptdwibintangglobal@yahoo.co.id
     </div>
     <script>
-      window.onload = function() { setTimeout(function(){ window.print(); }, 500); }
+      setTimeout(function(){ window.print(); }, 1500);
     </script>
   </body>
   </html>
