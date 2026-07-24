@@ -887,7 +887,7 @@ async function saveJournal() {
     const data = { journalNo, date, description, reference, entries, totalDebit: td, totalCredit: tc, bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     if (editId) { await updateDoc(doc(db, 'journals', editId), data); showToast('Jurnal diperbarui!'); }
     else { await addDoc(collection(db, 'journals'), data); showToast('Jurnal disimpan!'); }
-    closeJournalModal(); renderJournals(); refreshBadges();
+    closeJournalModal(); renderJournals(); renderCashBank(); refreshBadges();
   } catch (e) { showToast('Gagal: ' + e.message, 'error'); }
 }
 
@@ -951,7 +951,7 @@ function closeJournalDetailModal() { getEl('journal-detail-modal').close(); }
 async function deleteJournal(id, journalNo) {
   const ok = await confirmDialog(`Hapus jurnal ${journalNo}? Tindakan ini tidak dapat diurungkan.`);
   if (!ok) return;
-  try { await deleteDoc(doc(db, 'journals', id)); showToast('Jurnal dihapus'); renderJournals(); }
+  try { await deleteDoc(doc(db, 'journals', id)); showToast('Jurnal dihapus'); renderJournals(); renderCashBank(); }
   catch (e) { showToast('Gagal: ' + e.message, 'error'); }
 }
 
@@ -1144,6 +1144,12 @@ async function renderCashBank() {
         <td><div class="actions-cell">
           <button class="btn-icon" onclick="viewJournalDetail('${t.id}')" title="Lihat Jurnal">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+          <button class="btn-icon" onclick="openJournalModal('${t.id}')" title="Edit Jurnal">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+          <button class="btn-icon danger" onclick="deleteJournal('${t.id}','${t.journalNo}')" title="Hapus">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
           </button>
         </div></td>
       </tr>`;
