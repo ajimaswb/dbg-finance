@@ -646,7 +646,7 @@ async function saveCOA(e) {
   if (isGroup) {
     formattedName = name.toUpperCase();
   } else {
-    formattedName = name.toLowerCase().replace(/(^\w|\s\w)/g, m => m.toUpperCase());
+    formattedName = name.replace(/(^\w|\s\w)/g, m => m.toUpperCase());
   }
   let level = isGroup ? (code.endsWith('000') ? 1 : 2) : 3;
 
@@ -868,7 +868,7 @@ function updateJournalTotals() {
 
 async function saveJournal() {
   const editId = getEl('journal-edit-id').value;
-  const date = getEl('journal-date').value, description = getEl('journal-desc').value.trim().split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' '), reference = getEl('journal-ref').value.trim();
+  const date = getEl('journal-date').value, description = getEl('journal-desc').value.trim().split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1) : '').join(' '), reference = getEl('journal-ref').value.trim();
   if (!date || !description) { showToast('Tanggal & keterangan wajib diisi', 'error'); return; }
   const rows = document.querySelectorAll('.journal-line-row');
   const entries = [];
@@ -877,7 +877,7 @@ async function saveJournal() {
     if (!code) return;
     const acct = state.coa.find(a => a.code === code);
     let lnDesc = (r.querySelector('.ln-desc')?.value || '').trim();
-    if (lnDesc) lnDesc = lnDesc.split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' ');
+    if (lnDesc) lnDesc = lnDesc.split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1) : '').join(' ');
     entries.push({ accountCode: code, accountName: acct?.name || code, description: lnDesc, debit: d, credit: c });
   });
   if (entries.filter(e => e.accountCode).length < 2) { showToast('Minimal 2 baris entri', 'error'); return; }
@@ -1022,7 +1022,7 @@ async function saveCashBank(e) {
   e.preventDefault();
   const type = document.querySelector('input[name="cb-type"]:checked')?.value;
   const date = getEl('cb-date').value, cashCode = getEl('cb-cash-account').value, counterCode = getEl('cb-counter-account').value;
-  const amount = Number(getEl('cb-amount').value), desc = getEl('cb-desc').value.trim().split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' '), ref = getEl('cb-ref').value.trim();
+  const amount = Number(getEl('cb-amount').value), desc = getEl('cb-desc').value.trim().split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1) : '').join(' '), ref = getEl('cb-ref').value.trim();
   if (!type || !date || !cashCode || !counterCode || !amount || !desc) { showToast('Semua field wajib diisi', 'error'); return; }
   
   const appliedTaxes = [];
