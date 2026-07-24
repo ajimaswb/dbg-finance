@@ -1025,6 +1025,28 @@
                             <button type="submit" class="btn btn-primary">Simpan Pemetaan</button>
                         </form>
                     </div>
+                    <div class="glass-card" style="grid-column: 1 / -1;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h3>Pengaturan Pajak Dinamis</h3>
+                            <button type="button" class="btn btn-primary btn-sm" onclick="openTaxModal()">+ Tambah Pajak</button>
+                        </div>
+                        <p class="text-muted" style="margin-bottom:16px;font-size:0.85rem;">Konfigurasi daftar pajak yang akan muncul sebagai opsi di form transaksi.</p>
+                        <table class="report-table" style="width: 100%;">
+                            <thead>
+                                <tr>
+                                    <th>Nama Pajak</th>
+                                    <th>Persentase</th>
+                                    <th>Sifat</th>
+                                    <th>Akun Jurnal (COA)</th>
+                                    <th id="th-tax-mandatory">Otomatis di Akun Pajak?</th>
+                                    <th class="text-right">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dynamic-taxes-tbody">
+                                <tr><td colspan="6" class="text-center text-muted">Memuat...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </section>
 
@@ -1037,6 +1059,55 @@
     <!-- ====================================================== -->
     <!-- MODALS                                                  -->
     <!-- ====================================================== -->
+
+    <!-- TAX SETTING MODAL -->
+    <dialog id="tax-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="tax-modal-title">Tambah Pajak Dinamis</h3>
+                <button class="modal-close" onclick="closeTaxModal()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+            </div>
+            <form id="tax-form" onsubmit="saveTax(event)">
+                <input type="hidden" id="tax-edit-id">
+                <div class="form-group">
+                    <label for="tax-name">Nama Pajak *</label>
+                    <input type="text" id="tax-name" required placeholder="Misal: PPh 21, PPh 23">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="tax-rate">Persentase (%) *</label>
+                        <input type="number" id="tax-rate" required min="0" max="100" step="0.01" placeholder="Misal: 11 atau 2.5">
+                    </div>
+                    <div class="form-group">
+                        <label for="tax-type">Sifat *</label>
+                        <select id="tax-type" required>
+                            <option value="addition">Penambah (Contoh: PPN)</option>
+                            <option value="deduction">Pemotong (Contoh: PPh)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="tax-account">Akun Jurnal (COA) *</label>
+                    <select id="tax-account" class="account-map-select" required></select>
+                </div>
+                <div class="form-group" id="tax-mandatory-container">
+                    <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; cursor:pointer;">
+                        <input type="checkbox" id="tax-mandatory" style="width:16px;height:16px;accent-color:var(--accent);">
+                        Wajib dicentang otomatis untuk akun Pajak
+                    </label>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeTaxModal()">Batal</button>
+                    <button type="submit" class="btn btn-primary">Simpan</button>
+                </div>
+            </form>
+        </div>
+    </dialog>
 
     <!-- COA MODAL -->
     <dialog id="coa-modal" class="modal">
@@ -1202,6 +1273,7 @@
                             <div id="journal-balance-info" class="balance-info balanced">✓ Seimbang</div>
                         </div>
                     </div>
+
                 </div>
             </div>
             <div class="modal-actions">
@@ -1261,7 +1333,7 @@
                 </div>
                 <div class="form-group">
                     <label for="cb-amount">Jumlah (Rp) *</label>
-                    <input type="number" id="cb-amount" min="1" required placeholder="0">
+                    <input type="number" id="cb-amount" min="1" required placeholder="0" oninput="calcCBTotals()">
                 </div>
                 <div class="form-group">
                     <label for="cb-desc">Keterangan *</label>
@@ -1271,6 +1343,9 @@
                     <label for="cb-ref">Referensi</label>
                     <input type="text" id="cb-ref" placeholder="No. Bukti, Invoice, dll.">
                 </div>
+                <!-- Dynamic Taxes Container -->
+                <div id="cb-dynamic-taxes" style="margin-top: 16px;"></div>
+                <div id="cb-net-amount-display" style="margin-top: 8px; font-weight: bold; color: var(--accent); display: none;">Total Bersih: Rp 0</div>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeCashBankModal()">Batal</button>
                     <button type="submit" class="btn btn-primary">Simpan</button>
@@ -1294,8 +1369,8 @@
             <div class="modal-body">
                 <input type="hidden" id="invoice-edit-id">
                 <div class="form-row">
-                    <div class="form-group"><label>No. Invoice</label><input type="text" id="invoice-no" readonly
-                            class="readonly-input" placeholder="Auto-generate"></div>
+                    <div class="form-group"><label>No. Invoice</label><input type="text" id="invoice-no"
+                            placeholder="Auto-generate"></div>
                     <div class="form-group"><label for="inv-date">Tanggal Invoice *</label><input type="date"
                             id="inv-date" required></div>
                     <div class="form-group"><label for="inv-due-date">Jatuh Tempo *</label><input type="date"
@@ -1338,18 +1413,8 @@
                     </button>
                     <div class="invoice-totals">
                         <div class="inv-total-row"><span>Subtotal</span><span id="inv-subtotal">Rp 0</span></div>
-                        <div class="inv-total-row">
-                            <label class="toggle-ppn" style="cursor:pointer; display:flex; align-items:center; gap:8px;">
-                                <input type="checkbox" id="inv-use-ppn" onchange="calcInvoiceTotals()"> PPN (<span id="inv-tax-rate-label">11</span>%)
-                            </label>
-                            <span id="inv-tax-amount">Rp 0</span>
-                        </div>
-                        <div class="inv-total-row">
-                            <label style="cursor:pointer; display:flex; align-items:center; gap:8px;">
-                                <input type="checkbox" id="inv-use-pph23" onchange="calcInvoiceTotals()"> Potongan PPh 23 (2%)
-                            </label>
-                            <span id="inv-pph23-amount" class="red-text">- Rp 0</span>
-                        </div>
+                        <!-- Dynamic Taxes Container -->
+                        <div id="inv-dynamic-taxes"></div>
                         <div class="inv-total-row" style="align-items:center;">
                             <label>Potongan (Reject, dll)</label>
                             <input type="number" id="inv-discount-amount" min="0" step="1" placeholder="0" oninput="calcInvoiceTotals()" style="width:150px; text-align:right;">
@@ -1359,6 +1424,7 @@
                 </div>
                 <div class="form-group"><label>Keterangan Tambahan</label><textarea id="inv-notes" rows="2"
                         placeholder="Catatan untuk invoice..."></textarea></div>
+
             </div>
             <div class="modal-actions">
                 <button type="button" class="btn btn-secondary" onclick="closeInvoiceModal()">Batal</button>
@@ -1425,17 +1491,14 @@
                         Tambah Item
                     </button>
                     <div class="invoice-totals">
-                        <div class="inv-total-row">
-                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:var(--text-muted)">
-                                <input type="checkbox" id="bill-use-ppn" onchange="calcBillTotals()"> Tambahkan PPN (11%)
-                            </label>
-                            <span id="bill-tax-amount">Rp 0</span>
-                        </div>
+                        <!-- Dynamic Taxes Container -->
+                        <div id="bill-dynamic-taxes"></div>
                         <div class="inv-total-row grand"><span>Total Tagihan</span><span id="bill-grand-total">Rp 0</span></div>
                     </div>
                 </div>
                 <div class="form-group"><label>Keterangan</label><textarea id="bill-notes" rows="2"
                         placeholder="Catatan..."></textarea></div>
+
             </div>
             <div class="modal-actions">
                 <button type="button" class="btn btn-secondary" onclick="closeBillModal()">Batal</button>
@@ -1524,7 +1587,7 @@
         </div>
     </dialog>
 
-    <script type="module" src="app.js?v=1.0.1"></script>
+    <script type="module" src="app.js?v=10"></script>
 </body>
 
 </html>

@@ -20,11 +20,14 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+const TAX_EMAILS = ['dbgfinance@gmail.com']; // Hardcoded tax account emails
+
 // ================================================================
 // STATE
 // ================================================================
 let state = {
   user: null,
+  accessLevel: 'full', // 'full' or 'tax'
   coa: [],
   contacts: [],
   settings: {
@@ -161,6 +164,13 @@ onAuthStateChanged(auth, async (user) => {
     setText('user-name-display', dn);
     const av = getEl('user-avatar'); if (av) av.textContent = dn[0].toUpperCase();
     await loadSettings();
+    // Determine access level based on hardcoded TAX_EMAILS
+    if (TAX_EMAILS.includes(user.email.toLowerCase())) {
+      state.accessLevel = 'tax';
+    } else {
+      state.accessLevel = 'full';
+    }
+    setText('user-name-display', user.email);
     await loadCOA();
     await loadContacts();
     initDateInputs();
@@ -197,6 +207,20 @@ function initDateInputs() {
   const due = new Date(); due.setDate(due.getDate() + 30);
   const dueStr = due.toISOString().split('T')[0];
   ['inv-due-date','bill-due-date'].forEach(id => setVal(id, dueStr));
+}
+
+
+function getTaxBookType(appliedTaxes = []) {
+  if (state.accessLevel === 'tax') return 'tax';
+  return appliedTaxes.length > 0 ? 'tax' : 'internal';
+}
+
+function filterDocs(docs) {
+  if (state.accessLevel !== 'tax') return docs;
+  return docs.filter(doc => {
+    const data = typeof doc.data === 'function' ? doc.data() : doc;
+    return data.bookType === 'tax';
+  });
 }
 
 function updateDateDisplay() {
@@ -288,6 +312,7 @@ function loadSettingsPage() {
   setVal('set-company-npwp', state.settings.npwp || '');
   setVal('set-fiscal-month', state.settings.fiscalMonth || '01');
   setVal('set-tax-rate', state.settings.taxRate || 11);
+  setVal('set-tax-rate', state.settings.taxRate || 11);
   const maps = ['set-ar-account','set-ap-account','set-revenue-account','set-cash-account','set-ppn-out-account','set-ppn-in-account'];
   maps.forEach(id => populateAccountSelect(id));
   setTimeout(() => {
@@ -298,6 +323,7 @@ function loadSettingsPage() {
     setVal('set-ppn-out-account', state.settings.ppnOutAccount);
     setVal('set-ppn-in-account', state.settings.ppnInAccount);
   }, 50);
+  renderSettingsTaxes();
 }
 
 async function saveSettings(e) {
@@ -309,7 +335,7 @@ async function saveSettings(e) {
     email: getEl('set-company-email').value.trim(),
     npwp: getEl('set-company-npwp').value.trim(),
     fiscalMonth: getEl('set-fiscal-month').value,
-    taxRate: Number(getEl('set-tax-rate').value),
+    taxRate: Number(getEl('set-tax-rate').value)
   };
   try {
     await setDoc(doc(db, 'settings', 'main'), { ...state.settings, ...data }, { merge: true });
@@ -330,6 +356,130 @@ async function saveAccountMappings(e) {
     state.settings = { ...state.settings, ...data };
     showToast('Pemetaan akun disimpan!');
   } catch (e) { showToast('Gagal: ' + e.message, 'error'); }
+}
+
+// ================================================================
+// DYNAMIC TAXES
+// ================================================================
+function renderSettingsTaxes() {
+  const tbody = getEl('dynamic-taxes-tbody');
+  if(!tbody) return;
+  const taxes = state.settings.customTaxes || [];
+  const thMandatory = getEl('th-tax-mandatory');
+  const isTaxAccess = state.accessLevel === 'tax';
+  
+  if (thMandatory) {
+    thMandatory.style.display = isTaxAccess ? 'none' : '';
+  }
+
+  if (taxes.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="${isTaxAccess ? 5 : 6}" class="text-center text-muted">Belum ada pengaturan pajak dinamis.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = taxes.map(t => {
+    const acc = state.coa.find(a => a.id === t.accountId);
+    return `<tr>
+      <td>${t.name}</td>
+      <td>${t.rate}%</td>
+      <td>${t.type === 'addition' ? 'Penambah' : 'Pemotong'}</td>
+      <td>${acc ? acc.code + ' - ' + acc.name : '-'}</td>
+      ${isTaxAccess ? '' : `<td>${t.isMandatory ? 'Ya' : 'Tidak'}</td>`}
+      <td><div class="actions-cell">
+        <button class="btn-icon" onclick="openTaxModal('${t.id}')" title="Edit">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button class="btn-icon danger" onclick="deleteTax('${t.id}')" title="Hapus">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderDynamicTaxes(containerId, changeHandlerStr) {
+  const container = getEl(containerId);
+  if (!container) return;
+  const taxes = state.settings.customTaxes || [];
+  if (taxes.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = taxes.map(t => {
+    const isAutoLocked = (state.accessLevel === 'tax' && t.isMandatory);
+    return `<div class="inv-total-row" style="margin-top: 4px;">
+      <label style="cursor:${isAutoLocked ? 'not-allowed' : 'pointer'}; display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" class="dynamic-tax-checkbox" data-tax-id="${t.id}" data-tax-rate="${t.rate}" data-tax-type="${t.type}" data-tax-account="${t.accountId}" ${isAutoLocked ? 'checked disabled' : ''} onchange="${changeHandlerStr}">
+        ${t.name} (${t.rate}%)
+      </label>
+      <span class="dynamic-tax-amount" data-tax-id="${t.id}" style="${t.type === 'deduction' ? 'color: var(--danger)' : ''}">Rp 0</span>
+    </div>`;
+  }).join('');
+}
+
+function openTaxModal(id = null) {
+  populateAccountSelect('tax-account');
+  const container = getEl('tax-mandatory-container');
+  if (container) {
+    container.style.display = state.accessLevel === 'tax' ? 'none' : 'block';
+  }
+  if (id) {
+    const t = (state.settings.customTaxes || []).find(x => x.id === id);
+    if (t) {
+      setVal('tax-edit-id', t.id);
+      setVal('tax-name', t.name);
+      setVal('tax-rate', t.rate);
+      setVal('tax-type', t.type);
+      getEl('tax-mandatory').checked = t.isMandatory || false;
+      setTimeout(() => setVal('tax-account', t.accountId), 50);
+    }
+  } else {
+    setVal('tax-edit-id', '');
+    setVal('tax-name', '');
+    setVal('tax-rate', '');
+    setVal('tax-type', 'addition');
+    getEl('tax-mandatory').checked = false;
+  }
+  getEl('tax-modal').showModal();
+}
+
+function closeTaxModal() { getEl('tax-modal').close(); }
+
+async function saveTax(e) {
+  e.preventDefault();
+  const id = getEl('tax-edit-id').value;
+  const t = {
+    name: getEl('tax-name').value.trim(),
+    rate: Number(getEl('tax-rate').value),
+    type: getEl('tax-type').value,
+    accountId: getEl('tax-account').value,
+    isMandatory: getEl('tax-mandatory').checked
+  };
+  let taxes = state.settings.customTaxes || [];
+  if (id) {
+    t.id = id;
+    taxes = taxes.map(x => x.id === id ? t : x);
+  } else {
+    t.id = 'tax_' + Date.now();
+    taxes.push(t);
+  }
+  try {
+    await setDoc(doc(db, 'settings', 'main'), { ...state.settings, customTaxes: taxes }, { merge: true });
+    state.settings.customTaxes = taxes;
+    renderSettingsTaxes();
+    closeTaxModal();
+    showToast('Pajak berhasil disimpan!');
+  } catch (err) { showToast('Gagal: ' + err.message, 'error'); }
+}
+
+async function deleteTax(id) {
+  if (!confirm('Hapus pajak dinamis ini?')) return;
+  const taxes = (state.settings.customTaxes || []).filter(x => x.id !== id);
+  try {
+    await setDoc(doc(db, 'settings', 'main'), { ...state.settings, customTaxes: taxes }, { merge: true });
+    state.settings.customTaxes = taxes;
+    renderSettingsTaxes();
+    showToast('Pajak berhasil dihapus!');
+  } catch (err) { showToast('Gagal: ' + err.message, 'error'); }
 }
 
 // ================================================================
@@ -724,7 +874,8 @@ async function saveJournal() {
   if (Math.abs(td - tc) > 0.01) { showToast('Total Debit ≠ Total Kredit!', 'error'); return; }
   try {
     const journalNo = editId ? getEl('journal-no').value : await getNextNumber('journal');
-    const data = { journalNo, date, description, reference, entries, totalDebit: td, totalCredit: tc, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const bookType = getTaxBookType();
+    const data = { journalNo, date, description, reference, entries, totalDebit: td, totalCredit: tc, bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     if (editId) { await updateDoc(doc(db, 'journals', editId), data); showToast('Jurnal diperbarui!'); }
     else { await addDoc(collection(db, 'journals'), data); showToast('Jurnal disimpan!'); }
     closeJournalModal(); renderJournals(); refreshBadges();
@@ -738,7 +889,7 @@ async function renderJournals() {
   tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:20px">Memuat...</td></tr>`;
   try {
     const snap = await getDocs(query(collection(db, 'journals'), orderBy('date', 'desc')));
-    let journals = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    let journals = filterDocs(snap.docs).map(d => ({ id: d.id, ...d.data() }));
     if (mf) journals = journals.filter(j => j.date >= monthStart(mf) && j.date <= monthEnd(mf));
     if (search) journals = journals.filter(j => j.journalNo.toLowerCase().includes(search) || j.description.toLowerCase().includes(search) || (j.reference || '').toLowerCase().includes(search));
     if (!journals.length) { tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">Belum ada jurnal</div></td></tr>`; return; }
@@ -805,6 +956,8 @@ function getCashBankAccounts() {
 function openCashBankModal() {
   getEl('cb-edit-id').value = '';
   getEl('cashbank-form').reset();
+  renderDynamicTaxes('cb-dynamic-taxes', 'calcCBTotals()');
+  getEl('cb-net-amount-display').style.display = 'none';
   setVal('cb-date', today());
   const cashSel = getEl('cb-cash-account');
   cashSel.innerHTML = '<option value="">-- Pilih Kas/Bank --</option>';
@@ -816,6 +969,39 @@ function openCashBankModal() {
 }
 
 function closeCashBankModal() { getEl('cashbank-modal').close(); }
+
+function calcCBTotals() {
+  const amount = Number(getEl('cb-amount').value) || 0;
+  let net = amount;
+  const container = getEl('cb-dynamic-taxes');
+  if (!container) return;
+  const cbs = container.querySelectorAll('.dynamic-tax-checkbox');
+  let hasTax = false;
+  cbs.forEach(cb => {
+    if (cb.checked) {
+      hasTax = true;
+      const rate = Number(cb.dataset.taxRate) || 0;
+      const type = cb.dataset.taxType;
+      const taxAmount = Math.round(amount * (rate / 100));
+      if (type === 'addition') net += taxAmount;
+      else if (type === 'deduction') net -= taxAmount;
+      const span = container.querySelector(`.dynamic-tax-amount[data-tax-id="${cb.dataset.taxId}"]`);
+      if (span) span.textContent = formatRp(taxAmount);
+    } else {
+      const span = container.querySelector(`.dynamic-tax-amount[data-tax-id="${cb.dataset.taxId}"]`);
+      if (span) span.textContent = 'Rp 0';
+    }
+  });
+  
+  const display = getEl('cb-net-amount-display');
+  if (hasTax && amount > 0) {
+    display.style.display = 'block';
+    display.textContent = `Total Bersih (Net): Rp ${formatRp(net)}`;
+  } else {
+    display.style.display = 'none';
+  }
+}
+
 function updateCBLabels() {
   const t = document.querySelector('input[name="cb-type"]:checked')?.value;
   const l = getEl('cb-counter-label'); if (l) l.textContent = t === 'in' ? 'Akun Asal (Kredit) *' : 'Akun Tujuan (Debit) *';
@@ -827,14 +1013,89 @@ async function saveCashBank(e) {
   const date = getEl('cb-date').value, cashCode = getEl('cb-cash-account').value, counterCode = getEl('cb-counter-account').value;
   const amount = Number(getEl('cb-amount').value), desc = getEl('cb-desc').value.trim(), ref = getEl('cb-ref').value.trim();
   if (!type || !date || !cashCode || !counterCode || !amount || !desc) { showToast('Semua field wajib diisi', 'error'); return; }
-  const cashAcct = state.coa.find(a => a.code === cashCode), ctrAcct = state.coa.find(a => a.code === counterCode);
-  const entries = type === 'in'
-    ? [{ accountCode: cashCode, accountName: cashAcct?.name || cashCode, description: desc, debit: amount, credit: 0 }, { accountCode: counterCode, accountName: ctrAcct?.name || counterCode, description: desc, debit: 0, credit: amount }]
-    : [{ accountCode: counterCode, accountName: ctrAcct?.name || counterCode, description: desc, debit: amount, credit: 0 }, { accountCode: cashCode, accountName: cashAcct?.name || cashCode, description: desc, debit: 0, credit: amount }];
+  
+  const appliedTaxes = [];
+  const container = getEl('cb-dynamic-taxes');
+  if (container) {
+    container.querySelectorAll('.dynamic-tax-checkbox:checked').forEach(cb => {
+      appliedTaxes.push({
+        id: cb.dataset.taxId,
+        name: cb.parentNode.textContent.trim(),
+        rate: Number(cb.dataset.taxRate) || 0,
+        type: cb.dataset.taxType,
+        accountId: cb.dataset.taxAccount
+      });
+    });
+  }
+  
+  let dynamicTaxTotal = 0;
+  appliedTaxes.forEach(t => {
+    t.amount = Math.round(amount * (t.rate / 100));
+    if (t.type === 'addition') dynamicTaxTotal += t.amount;
+    else if (t.type === 'deduction') dynamicTaxTotal -= t.amount;
+  });
+  
+  // For Kas & Bank:
+  // Gross is amount. Net is amount + dynamicTaxTotal (if PPN added, Net goes up. If PPh23 deducted, Net goes down)
+  const netAmount = amount + dynamicTaxTotal;
+  
+  const cashAcct = state.coa.find(a => a.code === cashCode) || { code: cashCode, name: cashCode };
+  const ctrAcct = state.coa.find(a => a.code === counterCode) || { code: counterCode, name: counterCode };
+  
+  const entries = [];
+  let totalDebit = 0;
+  let totalCredit = 0;
+
+  if (type === 'in') {
+    // Pemasukan (Kas bertambah -> Debit = netAmount)
+    entries.push({ accountCode: cashCode, accountName: cashAcct.name, description: desc, debit: netAmount, credit: 0 });
+    totalDebit += netAmount;
+    
+    // Counter Account (Pendapatan dsb -> Kredit = gross amount)
+    entries.push({ accountCode: counterCode, accountName: ctrAcct.name, description: desc, debit: 0, credit: amount });
+    totalCredit += amount;
+    
+    // Taxes
+    appliedTaxes.forEach(t => {
+      const tAcct = state.coa.find(a => a.id === t.accountId || a.code === t.accountId) || { code: t.accountId, name: t.name };
+      if (t.type === 'addition') {
+        // e.g. PPN Keluaran. Increase liability -> Credit
+        entries.push({ accountCode: tAcct.code, accountName: tAcct.name, description: `${t.name} ${desc}`, debit: 0, credit: t.amount });
+        totalCredit += t.amount;
+      } else {
+        // e.g. PPh 23. Tax deduction -> Debit
+        entries.push({ accountCode: tAcct.code, accountName: tAcct.name, description: `${t.name} ${desc}`, debit: t.amount, credit: 0 });
+        totalDebit += t.amount;
+      }
+    });
+  } else {
+    // Pengeluaran (Kas berkurang -> Kredit = netAmount)
+    entries.push({ accountCode: cashCode, accountName: cashAcct.name, description: desc, debit: 0, credit: netAmount });
+    totalCredit += netAmount;
+    
+    // Counter Account (Biaya dsb -> Debit = gross amount)
+    entries.push({ accountCode: counterCode, accountName: ctrAcct.name, description: desc, debit: amount, credit: 0 });
+    totalDebit += amount;
+    
+    // Taxes
+    appliedTaxes.forEach(t => {
+      const tAcct = state.coa.find(a => a.id === t.accountId || a.code === t.accountId) || { code: t.accountId, name: t.name };
+      if (t.type === 'addition') {
+        // e.g. PPN Masukan. Increase asset/expense -> Debit
+        entries.push({ accountCode: tAcct.code, accountName: tAcct.name, description: `${t.name} ${desc}`, debit: t.amount, credit: 0 });
+        totalDebit += t.amount;
+      } else {
+        // e.g. PPh 23 utang. Increase liability -> Credit
+        entries.push({ accountCode: tAcct.code, accountName: tAcct.name, description: `${t.name} ${desc}`, debit: 0, credit: t.amount });
+        totalCredit += t.amount;
+      }
+    });
+  }
   try {
-    const journalNo = await getNextNumber('cashbank');
-    await addDoc(collection(db, 'journals'), { journalNo, date, description: desc, reference: ref, entries, totalDebit: amount, totalCredit: amount, source: 'cashbank', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-    showToast('Transaksi kas/bank disimpan!'); closeCashBankModal(); renderCashBank();
+    const jNo = await getNextNumber('journal');
+    const bookType = getTaxBookType(appliedTaxes);
+    await addDoc(collection(db, 'journals'), { journalNo: jNo, date, description: desc, reference: ref, entries, totalDebit, totalCredit, source: 'cashbank', bookType, appliedTaxes, grossAmount: amount, netAmount, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    showToast('Transaksi kas/bank disimpan!'); closeCashBankModal(); renderCashBank(); refreshBadges();
   } catch (e) { showToast('Gagal: ' + e.message, 'error'); }
 }
 
@@ -847,7 +1108,7 @@ async function renderCashBank() {
     const cashCodes = getCashBankAccounts().map(a => a.code);
     const snap = await getDocs(query(collection(db, 'journals'), orderBy('date')));
     let txs = [];
-    snap.docs.forEach(d => {
+    filterDocs(snap.docs).forEach(d => {
       const j = d.data();
       if (mf && (j.date < monthStart(mf) || j.date > monthEnd(mf))) return;
       (j.entries || []).forEach(e => {
@@ -894,15 +1155,13 @@ async function openInvoiceModal(editId = null) {
   populateContactSelect('inv-customer', 'customer');
   populateAccountSelect('inv-ar-account', ['asset']);
   setVal('inv-ar-account', state.settings.arAccount || '1110');
-  getEl('inv-tax-rate-label').textContent = state.settings.taxRate || 11;
   if (!editId) {
     setVal('invoice-no', 'Auto-generate'); setVal('inv-date', today());
     const due = new Date(); due.setDate(due.getDate() + 30);
     setVal('inv-due-date', due.toISOString().split('T')[0]);
     setVal('inv-order-ref', ''); setVal('inv-notes', ''); setVal('inv-tax-ref', '');
     setVal('inv-discount-amount', '');
-    if (getEl('inv-use-ppn')) getEl('inv-use-ppn').checked = false;
-    if (getEl('inv-use-pph23')) getEl('inv-use-pph23').checked = false;
+    renderDynamicTaxes('inv-dynamic-taxes', 'calcInvoiceTotals()');
     addInvoiceItem();
   }
   calcInvoiceTotals();
@@ -936,30 +1195,53 @@ function calcInvoiceTotals() {
     const qty = Number(r.querySelector('.item-qty')?.value || 0), price = Number(r.querySelector('.item-price')?.value || 0);
     const tot = qty * price; const el = r.querySelector('.item-total'); if (el) el.value = tot.toLocaleString('id-ID'); sub += tot;
   });
-  
-  const usePPN = getEl('inv-use-ppn')?.checked;
-  const tax = usePPN ? Math.round(sub * (Number(state.settings.taxRate || 11) / 100)) : 0;
-  
-  const usePPh23 = getEl('inv-use-pph23')?.checked;
-  const pph23 = usePPh23 ? Math.round(sub * 0.02) : 0;
+  let dynamicTaxTotal = 0;
+  const container = getEl('inv-dynamic-taxes');
+  if (container) {
+    const cbs = container.querySelectorAll('.dynamic-tax-checkbox');
+    cbs.forEach(cb => {
+      if (cb.checked) {
+        const rate = Number(cb.dataset.taxRate) || 0;
+        const type = cb.dataset.taxType;
+        const taxAmount = Math.round(sub * (rate / 100));
+        if (type === 'addition') dynamicTaxTotal += taxAmount;
+        else if (type === 'deduction') dynamicTaxTotal -= taxAmount;
+        const span = container.querySelector(`.dynamic-tax-amount[data-tax-id="${cb.dataset.taxId}"]`);
+        if (span) span.textContent = formatRp(taxAmount);
+      } else {
+        const span = container.querySelector(`.dynamic-tax-amount[data-tax-id="${cb.dataset.taxId}"]`);
+        if (span) span.textContent = 'Rp 0';
+      }
+    });
+  }
   
   const discount = Number(getEl('inv-discount-amount')?.value || 0);
   
   setText('inv-subtotal', formatRp(sub)); 
-  setText('inv-tax-amount', formatRp(tax)); 
-  setText('inv-pph23-amount', '- ' + formatRp(pph23));
   
-  const grandTotal = sub + tax - pph23 - discount;
+  const grandTotal = sub + dynamicTaxTotal - discount;
   setText('inv-grand-total', formatRp(grandTotal));
 }
 
 async function saveInvoice() {
   const customerId = getEl('inv-customer').value, date = getEl('inv-date').value, dueDate = getEl('inv-due-date').value;
   const arAccount = getEl('inv-ar-account').value, orderRef = getEl('inv-order-ref').value.trim(), notes = getEl('inv-notes').value.trim();
-  const usePPN = getEl('inv-use-ppn')?.checked;
-  const usePPh23 = getEl('inv-use-pph23')?.checked;
   const discountAmount = Number(getEl('inv-discount-amount')?.value || 0);
   const taxRef = getEl('inv-tax-ref')?.value.trim() || '';
+  
+  const appliedTaxes = [];
+  const container = getEl('inv-dynamic-taxes');
+  if (container) {
+    container.querySelectorAll('.dynamic-tax-checkbox:checked').forEach(cb => {
+      appliedTaxes.push({
+        id: cb.dataset.taxId,
+        name: cb.parentNode.textContent.trim(),
+        rate: Number(cb.dataset.taxRate) || 0,
+        type: cb.dataset.taxType,
+        accountId: cb.dataset.taxAccount
+      });
+    });
+  }
   
   if (!customerId || !date || !dueDate || !arAccount) { showToast('Customer, tanggal, & akun piutang wajib diisi', 'error'); return; }
   const customer = state.contacts.find(c => c.id === customerId);
@@ -970,36 +1252,51 @@ async function saveInvoice() {
   });
   if (!items.length) { showToast('Minimal satu item', 'error'); return; }
   
-  const taxRate = usePPN ? Number(state.settings.taxRate || 11) : 0;
-  const taxAmount = Math.round(subtotal * taxRate / 100);
-  const pph23Amount = usePPh23 ? Math.round(subtotal * 0.02) : 0;
-  const total = subtotal + taxAmount - pph23Amount - discountAmount;
+  let dynamicTaxTotal = 0;
+  appliedTaxes.forEach(t => {
+    t.amount = Math.round(subtotal * (t.rate / 100));
+    if (t.type === 'addition') dynamicTaxTotal += t.amount;
+    else if (t.type === 'deduction') dynamicTaxTotal -= t.amount;
+  });
+  
+  const total = subtotal + dynamicTaxTotal - discountAmount;
   
   try {
-    const invoiceNo = await getNextNumber('invoice');
+    let invoiceNo = getEl('invoice-no').value.trim();
+    if (!invoiceNo || invoiceNo === 'Auto-generate') invoiceNo = await getNextNumber('invoice');
     const arAcct = state.coa.find(a => a.code === arAccount) || { code: arAccount, name: 'Piutang Usaha' };
     const revAcct = state.coa.find(a => a.code === state.settings.revenueAccount) || { code: '4101', name: 'Pendapatan Jasa CMT' };
-    const ppnAcct = state.coa.find(a => a.code === state.settings.ppnOutAccount) || { code: '2106', name: 'PPN Keluaran' };
-    const pph23Acct = state.coa.find(a => a.code === '1131') || { code: '1131', name: 'Uang Muka PPh 23' };
     const discountAcct = state.coa.find(a => a.code === '4105') || { code: '4105', name: 'Potongan Pendapatan' };
     
     const entries = [
       { accountCode: arAccount, accountName: arAcct.name, description: `Invoice ${invoiceNo} - ${customer?.name}`, debit: total, credit: 0 },
       { accountCode: revAcct.code, accountName: revAcct.name, description: `Invoice ${invoiceNo} - ${customer?.name}`, debit: 0, credit: subtotal },
     ];
-    if (usePPN && taxAmount > 0) entries.push({ accountCode: ppnAcct.code, accountName: ppnAcct.name, description: `PPN ${invoiceNo}`, debit: 0, credit: taxAmount });
-    if (usePPh23 && pph23Amount > 0) entries.push({ accountCode: pph23Acct.code, accountName: pph23Acct.name, description: `Uang Muka PPh 23 ${invoiceNo}`, debit: pph23Amount, credit: 0 });
-    if (discountAmount > 0) entries.push({ accountCode: discountAcct.code, accountName: discountAcct.name, description: `Potongan/Reject ${invoiceNo}`, debit: discountAmount, credit: 0 });
+    
+    let totalDebit = total;
+    let totalCredit = subtotal;
+    
+    appliedTaxes.forEach(t => {
+      const tAcct = state.coa.find(a => a.id === t.accountId || a.code === t.accountId) || { code: t.accountId, name: t.name };
+      if (t.type === 'addition') {
+        entries.push({ accountCode: tAcct.code, accountName: tAcct.name, description: `${t.name} ${invoiceNo}`, debit: 0, credit: t.amount });
+        totalCredit += t.amount;
+      } else {
+        entries.push({ accountCode: tAcct.code, accountName: tAcct.name, description: `${t.name} ${invoiceNo}`, debit: t.amount, credit: 0 });
+        totalDebit += t.amount;
+      }
+    });
+    
+    if (discountAmount > 0) {
+      entries.push({ accountCode: discountAcct.code, accountName: discountAcct.name, description: `Potongan/Reject ${invoiceNo}`, debit: discountAmount, credit: 0 });
+      totalDebit += discountAmount;
+    }
     
     const jNo = await getNextNumber('journal');
-    // total debit must equal total credit.
-    // Credit: Rev (subtotal) + PPN Out (taxAmount)
-    // Debit: AR (total) + PPh 23 (pph23Amount) + Discount (discountAmount)
-    // subtotal + taxAmount === total + pph23Amount + discountAmount => Yes.
-    const totalCredit = subtotal + taxAmount;
+    const bookType = getTaxBookType(appliedTaxes);
     
-    const jRef = await addDoc(collection(db, 'journals'), { journalNo: jNo, date, description: `Invoice ${invoiceNo} - ${customer?.name}`, reference: invoiceNo, entries, totalDebit: totalCredit, totalCredit: totalCredit, source: 'invoice', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-    await addDoc(collection(db, 'invoices'), { invoiceNo, date, dueDate, customerId, customerName: customer?.name || '', orderRef, taxRef, items, subtotal, taxAmount, taxRate, pph23Amount, discountAmount, total, paid: 0, remaining: total, status: 'unpaid', payments: [], journalId: jRef.id, notes, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    const jRef = await addDoc(collection(db, 'journals'), { journalNo: jNo, date, description: `Invoice ${invoiceNo} - ${customer?.name}`, reference: invoiceNo, entries, totalDebit, totalCredit, source: 'invoice', bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    await addDoc(collection(db, 'invoices'), { invoiceNo, date, dueDate, customerId, customerName: customer?.name || '', orderRef, taxRef, items, subtotal, appliedTaxes, discountAmount, total, paid: 0, remaining: total, status: 'unpaid', payments: [], journalId: jRef.id, notes, bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     showToast(`Invoice ${invoiceNo} dibuat & jurnal diposting!`); closeInvoiceModal(); renderAR(); refreshBadges();
   } catch (e) { showToast('Gagal: ' + e.message, 'error'); }
 }
@@ -1012,7 +1309,7 @@ async function renderAR() {
   try {
     const today_str = today();
     const snap = await getDocs(query(collection(db, 'invoices'), orderBy('date', 'desc')));
-    let invs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    let invs = filterDocs(snap.docs).map(d => ({ id: d.id, ...d.data() }));
     if (mf) invs = invs.filter(i => i.date >= monthStart(mf) && i.date <= monthEnd(mf));
     if (search) invs = invs.filter(i => i.invoiceNo.toLowerCase().includes(search) || i.customerName.toLowerCase().includes(search));
     let totalUnpaid = 0, totalOverdue = 0, totalPaid = 0;
@@ -1050,8 +1347,13 @@ async function renderAR() {
 async function viewInvoiceDetail(id) {
   const snap = await getDoc(doc(db, 'invoices', id)); if (!snap.exists()) return;
   const inv = snap.data();
-  getEl('jd-title').textContent = `Invoice: ${inv.invoiceNo}`;
+  getEl('jd-title').innerHTML = `Invoice: ${inv.invoiceNo}`;
   getEl('journal-detail-content').innerHTML = `
+    <div style="display:flex; justify-content: flex-end; margin-bottom:12px;">
+      <button class="btn btn-primary" onclick="printInvoice('${id}')">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-right:6px"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg> Cetak Invoice
+      </button>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
       <div><span style="color:var(--text-muted);font-size:.8rem">Customer</span><div style="font-weight:700">${inv.customerName}</div></div>
       <div><span style="color:var(--text-muted);font-size:.8rem">No. Invoice</span><div style="font-weight:700;color:var(--accent-light)">${inv.invoiceNo}</div></div>
@@ -1064,7 +1366,9 @@ async function viewInvoiceDetail(id) {
       <tbody>${inv.items.map(it => `<tr><td>${it.description}</td><td class="text-right">${it.quantity.toLocaleString('id-ID')}</td><td>${it.unit}</td><td class="text-right">${formatRp(it.unitPrice)}</td><td class="text-right">${formatRp(it.total)}</td></tr>`).join('')}</tbody>
       <tfoot>
         <tr><td colspan="4" class="text-right">Subtotal</td><td class="text-right">${formatRp(inv.subtotal)}</td></tr>
-        ${inv.taxAmount > 0 ? `<tr><td colspan="4" class="text-right">PPN ${inv.taxRate}%</td><td class="text-right">${formatRp(inv.taxAmount)}</td></tr>` : ''}
+        ${inv.appliedTaxes ? inv.appliedTaxes.map(t => `<tr><td colspan="4" class="text-right">${t.name} ${t.rate}%</td><td class="text-right" style="${t.type === 'deduction' ? 'color:var(--danger)' : ''}">${t.type === 'deduction' ? '- ' : ''}${formatRp(t.amount)}</td></tr>`).join('') : ''}
+        ${!inv.appliedTaxes && inv.taxAmount > 0 ? `<tr><td colspan="4" class="text-right">PPN ${inv.taxRate}%</td><td class="text-right">${formatRp(inv.taxAmount)}</td></tr>` : ''}
+        ${!inv.appliedTaxes && inv.pph23Amount > 0 ? `<tr><td colspan="4" class="text-right">PPh 23</td><td class="text-right" style="color:var(--danger)">- ${formatRp(inv.pph23Amount)}</td></tr>` : ''}
         <tr class="report-total"><td colspan="4" class="text-right">TOTAL</td><td class="text-right">${formatRp(inv.total)}</td></tr>
         <tr><td colspan="4" class="text-right" style="color:var(--success-light)">Dibayar</td><td class="text-right" style="color:var(--success-light)">${formatRp(inv.paid || 0)}</td></tr>
         <tr><td colspan="4" class="text-right" style="color:var(--danger-light)">Sisa</td><td class="text-right" style="color:var(--danger-light);font-weight:800">${formatRp(inv.remaining || 0)}</td></tr>
@@ -1081,6 +1385,380 @@ async function deleteInvoice(id, invoiceNo) {
   if (!ok) return;
   try { await deleteDoc(doc(db, 'invoices', id)); showToast('Invoice dihapus'); renderAR(); refreshBadges(); }
   catch (e) { showToast('Gagal: ' + e.message, 'error'); }
+}
+
+function terbilang(angka) {
+  angka = Math.abs(angka);
+  const huruf = ["", "SATU", "DUA", "TIGA", "EMPAT", "LIMA", "ENAM", "TUJUH", "DELAPAN", "SEMBILAN", "SEPULUH", "SEBELAS"];
+  let temp = "";
+  if (angka < 12) {
+      temp = " " + huruf[angka];
+  } else if (angka < 20) {
+      temp = terbilang(angka - 10) + " BELAS";
+  } else if (angka < 100) {
+      temp = terbilang(Math.floor(angka / 10)) + " PULUH" + terbilang(angka % 10);
+  } else if (angka < 200) {
+      temp = " SERATUS" + terbilang(angka - 100);
+  } else if (angka < 1000) {
+      temp = terbilang(Math.floor(angka / 100)) + " RATUS" + terbilang(angka % 100);
+  } else if (angka < 2000) {
+      temp = " SERIBU" + terbilang(angka - 1000);
+  } else if (angka < 1000000) {
+      temp = terbilang(Math.floor(angka / 1000)) + " RIBU" + terbilang(angka % 1000);
+  } else if (angka < 1000000000) {
+      temp = terbilang(Math.floor(angka / 1000000)) + " JUTA" + terbilang(angka % 1000000);
+  } else if (angka < 1000000000000) {
+      temp = terbilang(Math.floor(angka / 1000000000)) + " MILYAR" + terbilang(angka % 1000000000);
+  } else if (angka < 1000000000000000) {
+      temp = terbilang(Math.floor(angka / 1000000000000)) + " TRILYUN" + terbilang(angka % 1000000000000);
+  }
+  return temp;
+}
+
+async function printInvoice(id) {
+  const snap = await getDoc(doc(db, 'invoices', id));
+  if (!snap.exists()) return;
+  const inv = snap.data();
+  
+  const customer = state.contacts.find(c => c.id === inv.customerId) || {};
+  const customerAddress = customer.address ? customer.address.split('\\n').join('<br>') : '';
+  
+  let totalHtml = '';
+  if (inv.appliedTaxes) {
+    inv.appliedTaxes.forEach(t => {
+      totalHtml += `<tr>
+        <td colspan="4" class="text-center font-bold" style="border: 1px solid black; padding: 4px;">${t.name}</td>
+        <td style="border: 1px solid black; padding: 4px; display:flex; justify-content:space-between; font-weight:bold;">
+          <span>Rp</span><span>${t.type === 'deduction' ? '- ' : ''}${Number(t.amount).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+        </td>
+      </tr>`;
+    });
+  } else {
+      if (inv.taxAmount > 0) {
+          totalHtml += `<tr>
+            <td colspan="4" class="text-center font-bold" style="border: 1px solid black; padding: 4px;">PPN ${inv.taxRate}%</td>
+            <td style="border: 1px solid black; padding: 4px; display:flex; justify-content:space-between; font-weight:bold;">
+              <span>Rp</span><span>${Number(inv.taxAmount).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+            </td>
+          </tr>`;
+      }
+      if (inv.pph23Amount > 0) {
+          totalHtml += `<tr>
+            <td colspan="4" class="text-center font-bold" style="border: 1px solid black; padding: 4px;">PPH23</td>
+            <td style="border: 1px solid black; padding: 4px; display:flex; justify-content:space-between; font-weight:bold;">
+              <span>Rp</span><span>- ${Number(inv.pph23Amount).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+            </td>
+          </tr>`;
+      }
+  }
+  
+  const amountInWords = terbilang(inv.total).trim() + " RUPIAH";
+  
+  const itemsHtml = inv.items.map((it, i) => `
+    <tr>
+      <td style="border: 1px solid black; padding: 4px; text-align: center;">${i+1}</td>
+      <td style="border: 1px solid black; padding: 4px;">${it.description}</td>
+      <td style="border: 1px solid black; padding: 4px; text-align: center;">${it.quantity.toLocaleString('id-ID')} ${it.unit}</td>
+      <td style="border: 1px solid black; padding: 4px;">
+        <div style="display:flex; justify-content:space-between;">
+          <span>Rp</span><span>${Number(it.unitPrice).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+        </div>
+      </td>
+      <td style="border: 1px solid black; padding: 4px;">
+        <div style="display:flex; justify-content:space-between;">
+          <span>Rp</span><span>${Number(it.total).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+
+  const dateObj = new Date(inv.date);
+  const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+  const formattedDate = `${dateObj.getDate().toString().padStart(2, '0')} ${monthNames[dateObj.getMonth()]} ${dateObj.getFullYear()}`;
+  
+  const html = `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <title>Print Invoice ${inv.invoiceNo}</title>
+    <style>
+      body {
+        font-family: 'Arial', sans-serif;
+        color: #000;
+        margin: 0;
+        padding: 40px;
+        position: relative;
+        font-size: 13px;
+      }
+      .blue-text {
+        color: #0056b3;
+      }
+      .header-container {
+        display: flex;
+        align-items: center;
+        margin-bottom: 20px;
+      }
+      .logo-placeholder {
+        width: 70px;
+        height: 50px;
+        border: 2px solid #0056b3;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #0056b3;
+        font-weight: bold;
+        font-size: 16px;
+        font-style: italic;
+        margin-right: 15px;
+        position: relative;
+        background: transparent;
+      }
+      .logo-placeholder::after {
+        content: '★';
+        position: absolute;
+        right: -8px;
+        top: 8px;
+        font-size: 24px;
+        color: #0056b3;
+        -webkit-text-stroke: 1px white;
+      }
+      .logo-placeholder::before {
+         content: '';
+         position: absolute;
+         width: 140%;
+         height: 100%;
+         top: 0;
+         left: -20%;
+      }
+      
+      .logo-outer {
+         position: relative;
+         margin-right: 15px;
+      }
+      .logo-star {
+         position: absolute;
+         right: -15px;
+         top: 10px;
+         color: #0056b3;
+         font-size: 30px;
+         z-index: 10;
+      }
+      
+      .company-name {
+        font-size: 22px;
+        font-weight: bold;
+        color: #0056b3;
+        margin: 0;
+      }
+      .company-sub {
+        font-size: 14px;
+        font-weight: bold;
+        color: #0056b3;
+        margin: 0;
+      }
+      .info-section {
+        margin-bottom: 20px;
+        font-weight: bold;
+      }
+      .info-section div { margin-bottom: 4px; }
+      .title-section {
+        text-align: center;
+        margin-bottom: 10px;
+      }
+      .title-section h2 { margin: 0; font-size: 18px; text-decoration: underline; font-family: monospace;}
+      .title-section p { margin: 5px 0 0 0; font-weight: bold; font-family: monospace;}
+      
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 5px;
+      }
+      th {
+        border: 1px solid black;
+        padding: 6px;
+        text-align: center;
+        background-color: #f0f0f0;
+      }
+      .font-bold { font-weight: bold; }
+      .text-center { text-align: center; }
+      
+      .says-row {
+        border: 1px solid black;
+        padding: 4px 8px;
+        text-align: center;
+        font-weight: bold;
+        font-size: 11px;
+      }
+      
+      .notes-section {
+        margin-top: 20px;
+        font-weight: bold;
+      }
+      .notes-section .bank-details {
+        margin-left: 20px;
+      }
+      
+      .signature-section {
+        margin-top: 40px;
+        width: 250px;
+        font-weight: bold;
+      }
+      .signature-section p { margin: 2px 0; }
+      .meterai-box {
+        width: 100px;
+        height: 60px;
+        border: 1px dashed #666;
+        margin: 10px 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        color: #666;
+      }
+      
+      .footer-section {
+        position: absolute;
+        bottom: 30px;
+        left: 40px;
+        right: 40px;
+        text-align: center;
+        border-top: 2px solid #0056b3;
+        padding-top: 10px;
+        font-size: 12px;
+        color: #0056b3;
+      }
+      
+      .watermark {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 400px;
+        height: 250px;
+        border: 12px solid rgba(0, 86, 179, 0.05);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(0, 86, 179, 0.05);
+        font-weight: bold;
+        font-size: 120px;
+        font-style: italic;
+        z-index: -1;
+      }
+      .watermark-star {
+        position: absolute;
+        right: -80px;
+        top: 20px;
+        font-size: 200px;
+        color: rgba(0, 86, 179, 0.05);
+      }
+      .watermark-text {
+        position: absolute;
+        bottom: 30px;
+        font-size: 28px;
+        white-space: nowrap;
+      }
+      
+      @media print {
+        @page { margin: 0; }
+        body { padding: 40px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="watermark">
+      dbg
+      <div class="watermark-star">★</div>
+      <div class="watermark-text">PT. DWI BINTANG GLOBAL</div>
+    </div>
+    
+    <div class="header-container">
+      <div class="logo-outer">
+         <div class="logo-placeholder">dbg</div>
+         <div class="logo-star">★</div>
+      </div>
+      <div>
+        <h1 class="company-name">PT. DWI BINTANG GLOBAL</h1>
+        <h2 class="company-sub">GARMENT FACTORY - TRADING - EXPORT</h2>
+      </div>
+    </div>
+    
+    <div class="info-section">
+      <div>TO :</div>
+      <div>${inv.customerName.toUpperCase()}</div>
+      ${customerAddress ? `<div>${customerAddress}</div>` : ''}
+      <div style="margin-top: 15px;">Attn. Accounting</div>
+    </div>
+    
+    <div class="title-section">
+      <h2>INVOICE</h2>
+      <p>No. ${inv.invoiceNo}</p>
+    </div>
+    
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 5%">NO</th>
+          <th style="width: 45%">KETERANGAN</th>
+          <th style="width: 10%">QTY</th>
+          <th style="width: 15%">HARGA/PCS</th>
+          <th style="width: 25%">JUMLAH</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${itemsHtml}
+        <tr>
+          <td colspan="4" class="text-center font-bold" style="border: 1px solid black; padding: 4px;">TOTAL</td>
+          <td style="border: 1px solid black; padding: 4px; display:flex; justify-content:space-between; font-weight:bold;">
+            <span>Rp</span><span>${Number(inv.subtotal).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+          </td>
+        </tr>
+        ${totalHtml}
+        <tr>
+          <td colspan="4" class="text-center font-bold" style="border: 1px solid black; padding: 4px;">JUMLAH</td>
+          <td style="border: 1px solid black; padding: 4px; display:flex; justify-content:space-between; font-weight:bold;">
+            <span>Rp</span><span>${Number(inv.total).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="says-row">SAYS: # ${amountInWords} #</div>
+    <div style="font-size: 10px; font-weight:bold; margin-top: 2px;">CATATAN</div>
+    
+    <div class="notes-section">
+      <div>Please transfer to our accunt :</div>
+      <div class="bank-details">
+        <table style="width:auto; border:none; margin:0;">
+          <tr><td style="border:none; padding:1px; width:110px;">No. Rekening</td><td style="border:none; padding:1px;">: 2513444443</td></tr>
+          <tr><td style="border:none; padding:1px;">Bank</td><td style="border:none; padding:1px;">: BCA</td></tr>
+          <tr><td style="border:none; padding:1px;">Atas nama</td><td style="border:none; padding:1px;">: PT. Dwi Bintang Global</td></tr>
+        </table>
+      </div>
+    </div>
+    
+    <div class="signature-section">
+      <p>Pemalang, ${formattedDate}</p>
+      <div class="meterai-box">METERAI TEMPEL</div>
+      <p>Dina Sofiana</p>
+      <p>Wakil Direktur</p>
+    </div>
+    
+    <div class="footer-section">
+      Jl. Perintis Kemerdekaan No.9 Kel. Beji Kec. Taman Kab. Pemalang - Jawa Tengah Telp. (0284) 324776 - 324752<br>
+      email : ptdwibintangglobal@yahoo.co.id
+    </div>
+    <script>
+      window.onload = function() { setTimeout(function(){ window.print(); }, 500); }
+    </script>
+  </body>
+  </html>
+  `;
+  
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
 }
 
 // ================================================================
@@ -1101,7 +1779,7 @@ async function openBillModal(editId = null) {
     const due = new Date(); due.setDate(due.getDate() + 30);
     setVal('bill-due-date', due.toISOString().split('T')[0]);
     setVal('bill-ref', ''); setVal('bill-tax-ref', ''); setVal('bill-notes', '');
-    if (getEl('bill-use-ppn')) getEl('bill-use-ppn').checked = false;
+    renderDynamicTaxes('bill-dynamic-taxes', 'calcBillTotals()');
     addBillItem();
   }
   calcBillTotals();
@@ -1140,10 +1818,28 @@ function calcBillTotals() {
     if (r.querySelector('.item-amount')) r.querySelector('.item-amount').value = amt;
     sub += amt;
   });
-  const usePPN = getEl('bill-use-ppn')?.checked;
-  const tax = usePPN ? Math.round(sub * (Number(state.settings.taxRate || 11) / 100)) : 0;
-  setText('bill-tax-amount', formatRp(tax));
-  setText('bill-grand-total', formatRp(sub + tax));
+  
+  let dynamicTaxTotal = 0;
+  const container = getEl('bill-dynamic-taxes');
+  if (container) {
+    const cbs = container.querySelectorAll('.dynamic-tax-checkbox');
+    cbs.forEach(cb => {
+      if (cb.checked) {
+        const rate = Number(cb.dataset.taxRate) || 0;
+        const type = cb.dataset.taxType;
+        const taxAmount = Math.round(sub * (rate / 100));
+        if (type === 'addition') dynamicTaxTotal += taxAmount;
+        else if (type === 'deduction') dynamicTaxTotal -= taxAmount;
+        const span = container.querySelector(`.dynamic-tax-amount[data-tax-id="${cb.dataset.taxId}"]`);
+        if (span) span.textContent = formatRp(taxAmount);
+      } else {
+        const span = container.querySelector(`.dynamic-tax-amount[data-tax-id="${cb.dataset.taxId}"]`);
+        if (span) span.textContent = 'Rp 0';
+      }
+    });
+  }
+  
+  setText('bill-grand-total', formatRp(sub + dynamicTaxTotal));
 }
 
 async function saveBill() {
@@ -1161,11 +1857,28 @@ async function saveBill() {
   if (!items.length) { showToast('Minimal satu item', 'error'); return; }
   if (items.some(i => !i.expenseAccount)) { showToast('Pilih akun beban untuk setiap item', 'error'); return; }
   
-  const usePPN = getEl('bill-use-ppn')?.checked;
-  const taxRate = usePPN ? Number(state.settings.taxRate || 11) : 0;
-  const taxAmount = usePPN ? Math.round(subtotal * (taxRate / 100)) : 0;
-  const grandTotal = subtotal + taxAmount;
-
+  const appliedTaxes = [];
+  const container = getEl('bill-dynamic-taxes');
+  if (container) {
+    container.querySelectorAll('.dynamic-tax-checkbox:checked').forEach(cb => {
+      appliedTaxes.push({
+        id: cb.dataset.taxId,
+        name: cb.parentNode.textContent.trim(),
+        rate: Number(cb.dataset.taxRate) || 0,
+        type: cb.dataset.taxType,
+        accountId: cb.dataset.taxAccount
+      });
+    });
+  }
+  
+  let dynamicTaxTotal = 0;
+  appliedTaxes.forEach(t => {
+    t.amount = Math.round(subtotal * (t.rate / 100));
+    if (t.type === 'addition') dynamicTaxTotal += t.amount;
+    else if (t.type === 'deduction') dynamicTaxTotal -= t.amount;
+  });
+  
+  const grandTotal = subtotal + dynamicTaxTotal;
   try {
     const billNo = await getNextNumber('bill');
     const apAcct = state.coa.find(a => a.code === apAccount) || { code: apAccount, name: 'Hutang Usaha' };
@@ -1173,15 +1886,30 @@ async function saveBill() {
       ...items.map(it => ({ accountCode: it.expenseAccount, accountName: it.expenseAccountName, description: it.description, debit: it.amount, credit: 0 }))
     ];
     
-    if (usePPN && taxAmount > 0) {
-      const ppnAcct = state.coa.find(a => a.code === state.settings.ppnInAccount) || { code: '1130', name: 'PPN Masukan' };
-      entries.push({ accountCode: ppnAcct.code, accountName: ppnAcct.name, description: `PPN ${billNo}`, debit: taxAmount, credit: 0 });
-    }
+    let totalDebit = 0;
+    let totalCredit = grandTotal; // AP Account
+    
+    items.forEach(it => {
+      totalDebit += it.amount;
+    });
+    
+    appliedTaxes.forEach(t => {
+      const tAcct = state.coa.find(a => a.id === t.accountId || a.code === t.accountId) || { code: t.accountId, name: t.name };
+      if (t.type === 'addition') {
+        entries.push({ accountCode: tAcct.code, accountName: tAcct.name, description: `${t.name} ${billNo}`, debit: t.amount, credit: 0 });
+        totalDebit += t.amount;
+      } else {
+        entries.push({ accountCode: tAcct.code, accountName: tAcct.name, description: `${t.name} ${billNo}`, debit: 0, credit: t.amount });
+        totalCredit += t.amount;
+      }
+    });
+    
     entries.push({ accountCode: apAccount, accountName: apAcct.name, description: `Tagihan ${billNo} - ${supplier?.name}`, debit: 0, credit: grandTotal });
     
     const jNo = await getNextNumber('journal');
-    const jRef = await addDoc(collection(db, 'journals'), { journalNo: jNo, date, description: `Tagihan ${billNo} - ${supplier?.name}`, reference: billNo, entries, totalDebit: grandTotal, totalCredit: grandTotal, source: 'bill', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-    await addDoc(collection(db, 'bills'), { billNo, date, dueDate, supplierId, supplierName: supplier?.name || '', billRef, billTaxRef, items, subtotal, taxRate, taxAmount, total: grandTotal, paid: 0, remaining: grandTotal, status: 'unpaid', payments: [], journalId: jRef.id, notes, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    const bookType = getTaxBookType(appliedTaxes);
+    const jRef = await addDoc(collection(db, 'journals'), { journalNo: jNo, date, description: `Tagihan ${billNo} - ${supplier?.name}`, reference: billNo, entries, totalDebit, totalCredit, source: 'bill', bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    await addDoc(collection(db, 'bills'), { billNo, date, dueDate, supplierId, supplierName: supplier?.name || '', billRef, taxRef: billTaxRef, items, subtotal, appliedTaxes, total: grandTotal, paid: 0, remaining: grandTotal, status: 'unpaid', payments: [], journalId: jRef.id, notes, bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     showToast(`Tagihan ${billNo} dibuat & jurnal diposting!`); closeBillModal(); renderAP(); refreshBadges();
   } catch (e) { showToast('Gagal: ' + e.message, 'error'); }
 }
@@ -1194,7 +1922,7 @@ async function renderAP() {
   try {
     const today_str = today();
     const snap = await getDocs(query(collection(db, 'bills'), orderBy('date', 'desc')));
-    let bills = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    let bills = filterDocs(snap.docs).map(d => ({ id: d.id, ...d.data() }));
     if (mf) bills = bills.filter(b => b.date >= monthStart(mf) && b.date <= monthEnd(mf));
     if (search) bills = bills.filter(b => b.billNo.toLowerCase().includes(search) || b.supplierName.toLowerCase().includes(search));
     let totalUnpaid = 0, totalOverdue = 0, totalPaid = 0;
@@ -1273,6 +2001,7 @@ async function savePayment(e) {
   if (amount > data.remaining + 0.01) { showToast(`Melebihi sisa tagihan (${formatRp(data.remaining)})`, 'error'); return; }
   const newPaid = (data.paid || 0) + amount, newRemaining = data.remaining - amount, newStatus = newRemaining <= 0.01 ? 'paid' : 'partial';
   const cashAcct = state.coa.find(a => a.code === accountCode);
+  const bookType = data.bookType || 'internal';
   try {
     const no = docType === 'invoice' ? data.invoiceNo : data.billNo;
     let entries;
@@ -1284,7 +2013,7 @@ async function savePayment(e) {
       entries = [{ accountCode: apAcct.code, accountName: apAcct.name, description: `Bayar ${no}`, debit: amount, credit: 0 }, { accountCode, accountName: cashAcct?.name || accountCode, description: `Bayar ${no}`, debit: 0, credit: amount }];
     }
     const jNo = await getNextNumber('journal');
-    await addDoc(collection(db, 'journals'), { journalNo: jNo, date, description: `${docType === 'invoice' ? 'Pembayaran Invoice' : 'Bayar Hutang'} ${no}`, reference: no, entries, totalDebit: amount, totalCredit: amount, source: `${docType}_payment`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    await addDoc(collection(db, 'journals'), { journalNo: jNo, date, description: `${docType === 'invoice' ? 'Pembayaran Invoice' : 'Bayar Hutang'} ${no}`, reference: no, entries, totalDebit: amount, totalCredit: amount, source: `${docType}_payment`, bookType, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     await updateDoc(doc(db, colName, docId), { paid: newPaid, remaining: newRemaining, status: newStatus, payments: [...(data.payments || []), { date, amount, accountCode, accountName: cashAcct?.name || accountCode, notes }], updatedAt: new Date().toISOString() });
     showToast(`Pembayaran ${formatRp(amount)} berhasil dicatat!`); closePaymentModal();
     if (docType === 'invoice') renderAR(); else renderAP(); refreshBadges();
@@ -1304,7 +2033,7 @@ async function getJournalBalances(startDate = null, endDate = null) {
     snap = await getDocs(query(collection(db, 'journals'), orderBy('date')));
   }
   const bal = {};
-  snap.docs.forEach(d => {
+  filterDocs(snap.docs).forEach(d => {
     (d.data().entries || []).forEach(e => {
       if (!bal[e.accountCode]) bal[e.accountCode] = { code: e.accountCode, name: e.accountName, debit: 0, credit: 0 };
       bal[e.accountCode].debit += e.debit || 0;
@@ -1452,7 +2181,7 @@ async function renderCashFlow() {
     const cashCodes = getCashBankAccounts().map(a => a.code);
     const snap = await getDocs(query(collection(db, 'journals'), where('date', '>=', df), where('date', '<=', dt), orderBy('date')));
     let ti = 0, to = 0; const txs = [];
-    snap.docs.forEach(d => {
+    filterDocs(snap.docs).forEach(d => {
       const j = d.data();
       (j.entries || []).forEach(e => {
         if (!cashCodes.includes(e.accountCode)) return;
@@ -1504,7 +2233,7 @@ async function renderLedger() {
     const acct = state.coa.find(a => a.code === code);
     const snap = await getDocs(query(collection(db, 'journals'), orderBy('date')));
     const txs = [];
-    snap.docs.forEach(d => {
+    filterDocs(snap.docs).forEach(d => {
       const j = d.data();
       if (df && j.date < df) return; if (dt && j.date > dt) return;
       (j.entries || []).forEach(e => { if (e.accountCode === code) txs.push({ date: j.date, journalNo: j.journalNo, description: j.description, reference: j.reference, debit: e.debit || 0, credit: e.credit || 0 }); });
@@ -1566,7 +2295,7 @@ async function renderDailyCash() {
     // Expenses (Table 3)
     const expCategories = {}; // format: { 'B. KEPERLUAN PRODUKSI': 150000 }
     
-    snap.docs.forEach(d => {
+    filterDocs(snap.docs).forEach(d => {
       const j = d.data();
       const m = j.date.substring(0,7);
       
@@ -1642,7 +2371,7 @@ async function renderDailyCash() {
     
     // Get opening balance for start of month
     let startOfMonthOpenBal = 0;
-    snap.docs.forEach(d => {
+    filterDocs(snap.docs).forEach(d => {
       const j = d.data();
       if (j.date >= currentM + '-01') return;
       const cbEntries = j.entries.filter(e => code ? e.accountCode === code : state.coa.find(a => a.code === e.accountCode && a.type === 'asset' && (a.name.toLowerCase().includes('kas') || a.name.toLowerCase().includes('bank'))));
@@ -1715,7 +2444,7 @@ async function renderARAgingReport() {
     let totalAll = 0, tot0_30 = 0, tot30_60 = 0, tot60_90 = 0, tot90_120 = 0, tot120 = 0;
     const rows = [];
     
-    invSnap.docs.forEach(d => {
+    filterDocs(invSnap.docs).forEach(d => {
       const inv = d.data();
       if (inv.remaining <= 0) return; // Ignore fully paid invoices
       
@@ -1818,13 +2547,13 @@ async function loadDashboard() {
     // AR/AP
     try {
       const arSnap = await getDocs(query(collection(db, 'invoices'), where('status', '!=', 'paid')));
-      setText('dash-ar', formatRp(arSnap.docs.reduce((s, d) => s + (d.data().remaining || 0), 0)));
+      setText('dash-ar', formatRp(filterDocs(arSnap.docs).reduce((s, d) => s + (d.data().remaining || 0), 0)));
       const td_str = today();
-      const aging = arSnap.docs.map(d => d.data()).filter(i => i.dueDate < td_str && i.remaining > 0).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+      const aging = filterDocs(arSnap.docs).map(d => d.data()).filter(i => i.dueDate < td_str && i.remaining > 0).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
       const agEl = getEl('dash-ar-aging');
       if (agEl) agEl.innerHTML = aging.slice(0, 5).map(i => `<div class="aging-item"><div><div class="aging-name">${i.customerName}</div><div style="font-size:.72rem;color:var(--text-muted)">${i.invoiceNo} • DUE ${formatDate(i.dueDate)}</div></div><div class="aging-amount">${formatRp(i.remaining)}</div></div>`).join('') || '<div class="empty-state-sm">Tidak ada piutang jatuh tempo 🎉</div>';
       const apSnap = await getDocs(query(collection(db, 'bills'), where('status', '!=', 'paid')));
-      setText('dash-ap', formatRp(apSnap.docs.reduce((s, d) => s + (d.data().remaining || 0), 0)));
+      setText('dash-ap', formatRp(filterDocs(apSnap.docs).reduce((s, d) => s + (d.data().remaining || 0), 0)));
     } catch {}
     // Cash
     const allBal = await getJournalBalances();
@@ -1868,11 +2597,12 @@ async function renderDashboardChart() {
 async function renderRecentJournals() {
   const el = getEl('dash-recent-journals'); if (!el) return;
   try {
-    const snap = await getDocs(query(collection(db, 'journals'), orderBy('date', 'desc'), limit(5)));
+    const snap = await getDocs(query(collection(db, 'journals'), orderBy('date', 'desc'), limit(50)));
     if (snap.empty) { el.innerHTML = '<div class="empty-state">Belum ada jurnal</div>'; return; }
+    const recentDocs = filterDocs(snap.docs).slice(0, 5);
     el.innerHTML = `<table class="data-table" style="width:100%">
       <thead><tr><th>No. Jurnal</th><th>Tanggal</th><th>Keterangan</th><th class="text-right">Total</th></tr></thead>
-      <tbody>${snap.docs.map(d => { const j = d.data(); return `<tr><td><strong style="color:var(--accent-light)">${j.journalNo}</strong></td><td>${formatDate(j.date)}</td><td>${j.description}</td><td class="text-right">${formatRp(j.totalDebit)}</td></tr>`; }).join('')}</tbody>
+      <tbody>${recentDocs.map(d => { const j = d.data(); return `<tr><td><strong style="color:var(--accent-light)">${j.journalNo}</strong></td><td>${formatDate(j.date)}</td><td>${j.description}</td><td class="text-right">${formatRp(j.totalDebit)}</td></tr>`; }).join('')}</tbody>
     </table>`;
   } catch {}
 }
@@ -1910,7 +2640,7 @@ function printReport() { window.print(); }
 async function exportJournals() {
   const snap = await getDocs(query(collection(db, 'journals'), orderBy('date', 'desc')));
   const rows = [['No. Jurnal','Tanggal','Keterangan','Referensi','Kode Akun','Nama Akun','Debit','Kredit']];
-  snap.docs.forEach(d => { const j = d.data(); (j.entries || []).forEach(e => { rows.push([j.journalNo, j.date, j.description, j.reference || '', e.accountCode, e.accountName, e.debit || 0, e.credit || 0]); }); });
+  filterDocs(snap.docs).forEach(d => { const j = d.data(); (j.entries || []).forEach(e => { rows.push([j.journalNo, j.date, j.description, j.reference || '', e.accountCode, e.accountName, e.debit || 0, e.credit || 0]); }); });
   downloadCSV(rows, 'Jurnal_PT_DBG.csv');
 }
 
@@ -1923,12 +2653,13 @@ Object.assign(window, {
   openContactModal, closeContactModal, saveContact, deleteContact, renderContacts,
   openJournalModal, closeJournalModal, addJournalLine, removeJournalLine, updateJournalTotals,
   clrOpp, saveJournal, renderJournals, deleteJournal, viewJournalDetail, closeJournalDetailModal, exportJournals,
-  openCashBankModal, closeCashBankModal, updateCBLabels, saveCashBank, renderCashBank,
+  openCashBankModal, closeCashBankModal, updateCBLabels, saveCashBank, renderCashBank, calcCBTotals,
   openInvoiceModal, closeInvoiceModal, addInvoiceItem, removeInvoiceItem, calcInvoiceTotals, saveInvoice, renderAR, viewInvoiceDetail, deleteInvoice,
   openBillModal, closeBillModal, addBillItem, removeBillItem, calcBillTotals, saveBill, renderAP, deleteBill,
   openPaymentModal, closePaymentModal, savePayment,
   renderTrialBalance, renderBalanceSheet, renderPL, renderCashFlow, renderLedger, loadLedgerAccountSelect, loadDailyCashReport, renderDailyCash, renderARAgingReport, exportReportCSV, printReport,
   saveSettings, saveAccountMappings, loadSettingsPage,
+  openTaxModal, closeTaxModal, saveTax, deleteTax
 });
 
 console.log('🏭 PT Dwi Bintang Global — Sistem Keuangan v1.0 | Ready');
